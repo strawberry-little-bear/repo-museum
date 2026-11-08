@@ -18,6 +18,8 @@ It is a static, browser-first experience with a guided route through a connected
 
 The visitor can switch between **Guided tour** and **Floor plan**. The guided route advances one question at a time; the floor plan lets an experienced visitor jump directly to a room. Claims remain linked to public GitHub evidence or the local Agent artifact. When a repository has no readable dependency manifest, the ecosystem room is removed from the route instead of presenting an empty exhibit.
 
+Each room now carries a small learning contract: one question, one takeaway, an evidence trail, and a confidence label (`observed`, `inferred`, or `mixed`). Visitors can mark a room as understood; the learning map and exit workshop use that state to show whether the project has become explainable rather than merely visited. The Agent emits the same `learning.promise` and `learning.rooms` fields, so deeper local analysis improves the lesson without changing the renderer.
+
 The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag.
 
 ## Run locally
@@ -74,6 +76,6 @@ schema/          shared museum data contract
 
 ## Product boundary
 
-The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
+The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into a teachable question with an evidence trail; `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
 
 Built by `strawberry-little-bear`.

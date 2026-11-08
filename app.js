@@ -17,6 +17,17 @@ const demoData = {
     guide: "The public description and README are the starting evidence for this orientation.",
     sourceNote: "Based on the repository description and README scan.",
   },
+  learning: {
+    promise: "By the end, you can explain what Vite is for, follow one change through it, and connect its current shape to the public history.",
+    rooms: [
+      { id: "hall-overview", label: "The foyer", question: "What is this project for?", takeaway: "Vite sits between a developer's source files and the browser: it makes the edit-to-feedback loop fast, then prepares the finished app for release.", mode: "observed", evidence: [{ type: "file", ref: "README.md", label: "README.md" }] },
+      { id: "hall-journey", label: "First visitor", question: "What happens when someone uses it?", takeaway: "A source change enters the dev server, is tracked and transformed through project machinery, then returns to the browser as a focused update.", mode: "inferred", evidence: [{ type: "file", ref: "README.md", label: "README.md" }, { type: "file", ref: "packages", label: "packages/" }] },
+      { id: "hall-architecture", label: "Blueprint room", question: "Which parts make that journey possible?", takeaway: "The repository is organized around packages, a dev server, a module graph, plugins, and a separate production build path.", mode: "observed", evidence: [{ type: "file", ref: "packages", label: "packages/" }, { type: "file", ref: "package.json", label: "package.json" }] },
+      { id: "hall-history", label: "History hall", question: "Why does it look this way now?", takeaway: "The project began as a focused fast-feedback tool, then widened its architecture and ecosystem while keeping that original promise visible.", mode: "mixed", evidence: [{ type: "commit", ref: "9a4f3cf", label: "Origin" }, { type: "release", ref: "v6.1.0", label: "Turning point" }] },
+      { id: "hall-dependencies", label: "Ecosystem room", question: "What supports it?", takeaway: "Vite borrows specialized capabilities for bundling, transforming, watching files, and serving assets instead of rebuilding every capability itself.", mode: "observed", evidence: [{ type: "file", ref: "package.json", label: "package.json" }] },
+      { id: "hall-opera", label: "Exit workshop", question: "What should I remember?", takeaway: "The useful map is: purpose → request path → visible parts → historical reason. The repository becomes understandable when those four views agree.", mode: "mixed", evidence: [{ type: "file", ref: "README.md", label: "README.md" }, { type: "commit", ref: "9c9b2a1", label: "latest commit" }] },
+    ],
+  },
   journey: {
     intro: "Before reading files, follow the everyday moment Vite is designed to make feel instant: a developer changes source code and sees the browser respond.",
     summary: "Source change → Vite finds and transforms the affected module → the browser receives a focused update. A production build takes a different route and bundles the finished app.",
@@ -120,6 +131,7 @@ const state = {
   artifactPath: null,
   mode: "demo",
   visitedRooms: new Set(),
+  understoodRooms: new Set(),
   entered: false,
 };
 
@@ -298,6 +310,25 @@ function buildArchitecture(tree = [], manifestPath, readmeText, repository) {
   };
 }
 
+function buildLearning(data) {
+  const architecture = data.architecture || {};
+  const analysis = data.analysis || {};
+  const firstStep = data.journey?.steps?.[0]?.evidence || "README.md";
+  const mainArea = architecture.folders?.find((item) => /src|lib|app|packages|server|core/i.test(item.name))?.evidence || architecture.folders?.[0]?.evidence || firstStep;
+  const historyEvidence = (analysis.arc || []).slice(0, 2).flatMap((chapter) => chapter.evidence || []).map((item) => ({ ...item, label: item.label || item.ref }));
+  return {
+    promise: `By the end, you can explain what ${data.name?.split("/").pop()?.trim() || "this project"} is for, follow one likely use path, and connect its current shape to the public history.`,
+    rooms: [
+      { id: "hall-overview", label: "The foyer", question: "What is this project for?", takeaway: data.orientation?.outcome || data.orientation?.oneLine || data.description, mode: "observed", evidence: [{ type: "file", ref: firstStep, label: firstStep }] },
+      { id: "hall-journey", label: "First visitor", question: "What happens when someone uses it?", takeaway: data.journey?.summary || "An input enters, the project coordinates its parts, and a result comes back.", mode: "inferred", evidence: (data.journey?.steps || []).slice(0, 2).map((step) => ({ type: "file", ref: step.evidence || firstStep, label: step.evidence || firstStep })) },
+      { id: "hall-architecture", label: "Blueprint room", question: "Which parts make that journey possible?", takeaway: architecture.summary || "The visible tree is the project's first blueprint.", mode: "observed", evidence: (architecture.flow || []).slice(0, 2).map((item) => ({ type: "file", ref: item.evidence || mainArea, label: item.evidence || mainArea })) },
+      { id: "hall-history", label: "History hall", question: "Why does it look this way now?", takeaway: analysis.historySummary || analysis.thesis || "The current shape is the result of observable changes over time.", mode: "mixed", evidence: historyEvidence },
+      ...(data.dependencies?.length ? [{ id: "hall-dependencies", label: "Ecosystem room", question: "What supports it?", takeaway: `${data.dependencies.length} direct dependencies are visible in ${data.manifestPath || "the project manifests"}; they show which capabilities the repository borrows.`, mode: "observed", evidence: [{ type: "file", ref: data.manifestPath || firstStep, label: data.manifestPath || firstStep }] }] : []),
+      { id: "hall-opera", label: "Exit workshop", question: "What should I remember?", takeaway: analysis.exit || "The project is easiest to remember as a map from purpose to path, parts, and history.", mode: "mixed", evidence: [{ type: "file", ref: firstStep, label: firstStep }, ...historyEvidence.slice(-1)] },
+    ],
+  };
+}
+
 function commitToEvent(commit, index, total) {
   const message = commit.commit?.message?.split("\n")[0] || "A new mark in the archive";
   return { date: formatDate(commit.commit?.author?.date), title: message.slice(0, 58), meta: `${commit.commit?.author?.name || commit.author?.login || "Unknown author"} · public commit`, sha: shortenSha(commit.sha), kind: index === total - 1 ? "origin" : "commit", url: commit.html_url || `https://github.com/${commit.committer?.login || ""}` };
@@ -343,6 +374,7 @@ function buildLiveData(repo, repository, commits, releases, contributors, langua
   };
   data.journey = buildJourney(repository, readmeText, data.architecture, manifestPath);
   data.analysis = buildBrowserAnalysis(data);
+  data.learning = buildLearning(data);
   return data;
 }
 
@@ -472,6 +504,15 @@ function evidenceHref(data, ref) {
   return `${data.htmlUrl || "#"}/${isFile ? "blob" : "tree"}/${data.defaultBranch || "main"}/${value}`;
 }
 
+function sourceHref(data, item) {
+  if (!item) return evidenceHref(data, "README.md");
+  if (item.url) return item.url;
+  const ref = item.ref || item.label || "README.md";
+  if (item.type === "commit") return `${data.htmlUrl || "#"}/commit/${ref}`;
+  if (item.type === "release") return `${data.htmlUrl || "#"}/releases/tag/${ref}`;
+  return evidenceHref(data, ref);
+}
+
 function renderJourney(data) {
   const journey = data.journey || demoData.journey;
   el("journey-intro").textContent = journey.intro || "Follow one ordinary use of the project before looking at its files.";
@@ -485,9 +526,12 @@ function renderJourney(data) {
     const label = document.createElement("p"); label.className = "journey-label"; label.textContent = step.label || "Step";
     const title = document.createElement("h5"); title.textContent = step.title || "A project step";
     const plain = document.createElement("p"); plain.className = "journey-plain"; plain.textContent = step.plain || "The project performs a visible action.";
+    const closer = document.createElement("details"); closer.className = "journey-closer";
+    const summary = document.createElement("summary"); summary.textContent = "Look closer";
     const technical = document.createElement("p"); technical.className = "journey-technical"; technical.textContent = step.technical || "The repository provides the machinery for this step.";
+    closer.append(summary, technical);
     const evidence = document.createElement("a"); evidence.className = "journey-evidence"; evidence.href = evidenceHref(data, step.evidence); evidence.target = "_blank"; evidence.rel = "noreferrer"; evidence.textContent = `${step.evidence || "evidence"} ↗`;
-    body.append(label, title, plain, technical, evidence); article.append(marker, body); return article;
+    body.append(label, title, plain, closer, evidence); article.append(marker, body); return article;
   }));
   el("glossary-list").replaceChildren(...(journey.glossary || []).map((item) => {
     const row = document.createElement("div"); row.className = "glossary-item";
@@ -520,25 +564,114 @@ function renderHistoryTeaching(data) {
     const label = document.createElement("p"); label.className = "story-label"; label.textContent = chapter.label || "Chapter";
     const title = document.createElement("h5"); title.textContent = chapter.title || "A chapter in the record";
     const summary = document.createElement("p"); summary.textContent = chapter.lesson || chapter.summary || "The archive records a change.";
-    article.append(number, label, title, summary); return article;
+    const evidence = document.createElement("div"); evidence.className = "history-evidence";
+    (chapter.evidence || []).slice(0, 2).forEach((item) => {
+      const link = document.createElement("a"); link.href = sourceHref(data, item); link.target = "_blank"; link.rel = "noreferrer"; link.textContent = `${item.label || item.ref || "evidence"} ↗`; evidence.append(link);
+    });
+    article.append(number, label, title, summary, evidence); return article;
   }));
 }
 
 function renderExit(data) {
+  const learning = data.learning || buildLearning(data);
+  const understood = state.understoodRooms || new Set();
+  const totalRooms = state.rooms?.length || learning.rooms?.length || 0;
+  const complete = totalRooms > 0 && understood.size === totalRooms;
   const orientation = data.orientation || {};
-  el("exit-intro").textContent = data.analysis?.exit || "Leave with a mental model, not a pile of facts. These are the questions you should now be able to answer.";
+  const authoredExit = data.analysis?.exit;
+  const learnedExit = learning.rooms?.find((room) => room.id === "hall-opera")?.takeaway;
+  const exitIntro = authoredExit && authoredExit !== learnedExit
+    ? authoredExit
+    : complete
+      ? "Your map is complete. Rehearse it in three plain-language sentences, then use the pulse below as a record of how the project keeps changing."
+      : "Test the map you are building with three plain-language questions. Mark each conclusion when you can say it without opening the code.";
+  el("exit-intro").textContent = exitIntro;
+  el("exit-stamp").textContent = complete ? "MAP COMPLETE" : "REVIEW MAP";
   const lessons = [
-    ["What does it do?", orientation.oneLine || data.description],
-    ["How does it work?", orientation.how || "Follow the visitor path and machine map."],
-    ["Why is it this way now?", data.analysis?.thesis || "Its history explains the current shape."],
+    ["What does it do?", learning.rooms?.find((room) => room.id === "hall-overview")?.takeaway || orientation.oneLine || data.description],
+    ["How does it work?", learning.rooms?.find((room) => room.id === "hall-journey")?.takeaway || orientation.how || "Follow the visitor path and machine map."],
+    ["Why is it this way now?", learning.rooms?.find((room) => room.id === "hall-history")?.takeaway || data.analysis?.thesis || "Its history explains the current shape."],
   ];
   el("learned-list").replaceChildren(...lessons.map(([question, answer], index) => {
     const row = document.createElement("article"); row.className = "learned-item";
     const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
     const q = document.createElement("strong"); q.textContent = question;
     const a = document.createElement("p"); a.textContent = answer || "The archive is still being read.";
-    row.append(number, q, a); return row;
+    const roomId = ["hall-overview", "hall-journey", "hall-history"][index];
+    const status = document.createElement("span"); status.className = `lesson-status${understood.has(roomId) ? " is-understood" : ""}`; status.textContent = understood.has(roomId) ? "UNDERSTOOD" : "REVIEW";
+    row.append(number, q, a, status); return row;
   }));
+}
+
+function roomDefinition(data, id) {
+  return (data.learning?.rooms || demoData.learning.rooms).find((room) => room.id === id);
+}
+
+function renderLearning(data) {
+  const learning = data.learning || buildLearning(data);
+  const promise = learning.promise || "By the end of this visit, you should be able to explain the project's purpose, path, parts, and history.";
+  const promiseNode = el("visit-learning-promise");
+  if (promiseNode) promiseNode.textContent = promise;
+  const rooms = learning.rooms || [];
+  document.querySelectorAll(".room-learning").forEach((block) => block.remove());
+  rooms.forEach((room) => {
+    const panel = document.getElementById(room.id);
+    if (!panel) return;
+    const block = document.createElement("div"); block.className = "room-learning";
+    const copy = document.createElement("div"); copy.className = "room-learning-copy";
+    const label = document.createElement("span"); label.className = "subsection-label"; label.textContent = "When you leave this room";
+    const takeaway = document.createElement("strong"); takeaway.textContent = room.takeaway || "Carry this conclusion into the next room.";
+    copy.append(label, takeaway);
+    const action = document.createElement("div"); action.className = "room-learning-action";
+    const mode = document.createElement("span"); mode.className = "learning-mode"; mode.textContent = room.mode === "inferred" ? "Inferred reading" : room.mode === "mixed" ? "Observed + inferred" : "Observed in evidence";
+    const understood = document.createElement("button"); understood.type = "button"; understood.className = "understand-button"; understood.dataset.room = room.id;
+    action.append(mode, understood);
+    const evidence = document.createElement("div"); evidence.className = "learning-evidence";
+    (room.evidence || []).slice(0, 3).forEach((item) => {
+      const link = document.createElement("a"); link.href = sourceHref(data, item); link.target = "_blank"; link.rel = "noreferrer"; link.textContent = `${item.label || item.ref || "evidence"} ↗`; evidence.append(link);
+    });
+    block.append(copy, action, evidence);
+    panel.querySelector(".panel-heading")?.after(block);
+  });
+  updateLearningControls();
+}
+
+function updateLearningControls() {
+  const understood = state.understoodRooms || new Set();
+  document.querySelectorAll(".understand-button").forEach((button) => {
+    const isDone = understood.has(button.dataset.room);
+    button.classList.toggle("is-understood", isDone);
+    button.setAttribute("aria-pressed", String(isDone));
+    button.replaceChildren(document.createElement("span"), document.createElement("span"));
+    button.firstElementChild.textContent = isDone ? "✓" : "○";
+    button.lastElementChild.textContent = isDone ? "Understood" : "Mark understood";
+  });
+  document.querySelectorAll(".map-room").forEach((button) => {
+    const isDone = understood.has(button.dataset.target);
+    button.classList.toggle("is-understood", isDone);
+    button.setAttribute("aria-pressed", String(isDone));
+    const status = button.querySelector(".map-room-status");
+    if (status) status.textContent = isDone ? "UNDERSTOOD ✓" : "OPEN ROOM";
+  });
+  const rooms = state.rooms?.length || 0;
+  const count = understood.size;
+  const node = el("visit-learning");
+  if (node && rooms) node.textContent = `${count} / ${rooms} rooms understood · ${state.visitedRooms?.size || 0} visited`;
+}
+
+function toggleRoomUnderstanding(roomId) {
+  const understood = state.understoodRooms || new Set();
+  if (understood.has(roomId)) understood.delete(roomId); else understood.add(roomId);
+  state.understoodRooms = understood;
+  updateLearningControls();
+  renderExit(state.data);
+  const total = state.rooms?.length || 0;
+  el("final-summary").textContent = understood.size === total && total
+    ? `You have a complete first map of ${state.data.name}: purpose, path, parts, history${state.data.dependencies?.length ? ", and ecosystem" : ""}.`
+    : `${understood.size} of ${total} rooms understood. Keep going until you can retell the project without opening the code.`;
+  const rooms = state.rooms?.length || 0;
+  const verb = understood.has(roomId) ? "Marked as understood" : "Removed from understood rooms";
+  showToast(`${verb} · ${understood.size}/${rooms}`);
 }
 
 function renderArchitecture(data) {
@@ -605,10 +738,13 @@ function renderVisitMap(data) {
     const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
     const label = document.createElement("strong"); label.textContent = room.label;
     const question = document.createElement("small"); question.textContent = room.question;
-    button.append(number, label, question); button.addEventListener("click", () => navigateToRoom(room.id)); return button;
+    const takeaway = document.createElement("p"); takeaway.textContent = roomDefinition(data, room.id)?.takeaway || "Carry one conclusion into the next room.";
+    const status = document.createElement("span"); status.className = "map-room-status"; status.textContent = "";
+    button.append(number, label, question, takeaway, status); button.addEventListener("click", () => navigateToRoom(room.id)); return button;
   }));
   state.rooms = allRooms;
   updateVisitProgress("hall-overview");
+  updateLearningControls();
 }
 
 function navigateToRoom(target) {
@@ -626,9 +762,9 @@ function updateVisitProgress(target) {
   el("visit-progress-fill").style.width = `${((index + 1) / rooms.length) * 100}%`;
   const visited = state.visitedRooms || new Set(["hall-overview"]);
   visited.add(target); state.visitedRooms = visited;
-  el("visit-learning").textContent = `${visited.size} ${visited.size === 1 ? "room" : "rooms"} visited`;
   document.querySelectorAll(".index-item").forEach((item) => item.classList.toggle("is-active", item.dataset.target === target));
   document.querySelectorAll(".map-room").forEach((item) => item.classList.toggle("is-active", item.dataset.target === target));
+  updateLearningControls();
 }
 
 function renderAquarium(data) {
@@ -678,9 +814,11 @@ function renderScore(data) {
 }
 
 function render(data) {
+  if (!data.learning) data.learning = buildLearning(data);
   state.data = data;
   state.currentRepo = data.repo;
   state.visitedRooms = new Set(["hall-overview"]);
+  state.understoodRooms = new Set();
   el("collection-status").textContent = state.mode === "agent" ? `Agent collection · ${data.repo}` : data.repo === demoData.repo ? "Demo collection · ready to explore" : `Public collection · ${data.repo}`;
   el("project-number").textContent = data.repo === demoData.repo ? "001" : "LIVE";
   el("project-title").textContent = data.name;
@@ -694,9 +832,9 @@ function render(data) {
   el("fact-pushed").textContent = relativeDate(data.pushedAt);
   el("fact-language").textContent = data.language || "Mixed stack";
   el("fact-license").textContent = data.license || "Unspecified";
-  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderHistoryTeaching(data); renderExit(data); renderVisitMap(data);
+  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
   el("score-caption").textContent = `Commit pulse / ${data.commits?.length || 0} markers`;
-  el("final-summary").textContent = `You have traced ${data.name} from purpose to present-day motion. Every room is a different lens on the same public record.`;
+  el("final-summary").textContent = `You have traced ${data.name} from purpose to present-day motion. Mark rooms as understood when you can explain their conclusion in your own words.`;
 }
 
 async function fetchMuseumArtifact(path) {
@@ -795,6 +933,10 @@ document.addEventListener("DOMContentLoaded", () => {
     else { el("repo-input").value = queryRepo; loadRepo(parseRepo(queryRepo)); }
   }
   el("repo-form").addEventListener("submit", (event) => { event.preventDefault(); const repo = parseRepo(el("repo-input").value); if (!repo) { showToast("Enter a GitHub owner/repository first."); el("repo-input").focus(); return; } loadRepo(repo); });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".understand-button");
+    if (button) toggleRoomUnderstanding(button.dataset.room);
+  });
   el("demo-button").addEventListener("click", openDemo); el("error-demo-button").addEventListener("click", openDemo);
   el("random-button").addEventListener("click", () => { const repos = ["sindresorhus/ky", "tailwindlabs/tailwindcss", "denoland/deno", "pallets/flask", "rust-lang/rustlings"]; const repo = repos[Math.floor(Math.random() * repos.length)]; el("repo-input").value = repo; loadRepo(repo); });
   document.querySelectorAll(".index-item").forEach((button) => button.addEventListener("click", () => navigateToRoom(button.dataset.target)));

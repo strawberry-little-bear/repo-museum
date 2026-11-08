@@ -10,6 +10,28 @@
     "htmlUrl": { "type": "string" },
     "events": { "type": "array", "items": { "type": "object" } },
     "dependencies": { "type": "array", "items": { "type": "object" } },
+    "learning": {
+      "type": "object",
+      "required": ["promise", "rooms"],
+      "properties": {
+        "promise": { "type": "string" },
+        "rooms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "question", "takeaway", "mode"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "question": { "type": "string" },
+              "takeaway": { "type": "string" },
+              "mode": { "enum": ["observed", "inferred", "mixed"] },
+              "evidence": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        }
+      }
+    },
     "orientation": {
       "type": "object",
       "required": ["what", "oneLine", "use", "how"],

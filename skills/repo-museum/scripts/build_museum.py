@@ -277,6 +277,80 @@ def build_analysis(commits: list[dict[str, Any]], files: list[str], dependencies
     }
 
 
+def build_learning(
+    orientation: dict[str, str],
+    journey: dict[str, Any],
+    architecture: dict[str, Any],
+    analysis: dict[str, Any],
+    dependencies: list[dict[str, str]],
+    readme_path: str | None,
+    manifest_path: str | None,
+) -> dict[str, Any]:
+    """Create the visitor-facing teaching contract shared by Agent and browser renders."""
+    first_evidence = readme_path or manifest_path or "README.md"
+    main_area = next((item.get("evidence") for item in architecture.get("folders", []) if item.get("name", "").lower() in {"src", "lib", "app", "packages", "server", "core"}), None) or first_evidence
+
+    def file_evidence(ref: str) -> dict[str, str]:
+        return {"type": "file", "ref": ref, "label": ref}
+
+    history_evidence = [item for chapter in analysis.get("arc", [])[:2] for item in chapter.get("evidence", [])]
+    rooms: list[dict[str, Any]] = [
+        {
+            "id": "hall-overview",
+            "label": "The foyer",
+            "question": "What is this project for?",
+            "takeaway": orientation.get("outcome", "Explain what the project does and who it is for."),
+            "mode": "observed",
+            "evidence": [file_evidence(first_evidence)],
+        },
+        {
+            "id": "hall-journey",
+            "label": "First visitor",
+            "question": "What happens when someone uses it?",
+            "takeaway": journey.get("summary", "An input enters, the project coordinates its parts, and a result comes back."),
+            "mode": "inferred",
+            "evidence": [file_evidence(step.get("evidence") or first_evidence) for step in journey.get("steps", [])[:2]],
+        },
+        {
+            "id": "hall-architecture",
+            "label": "Blueprint room",
+            "question": "Which parts make that journey possible?",
+            "takeaway": architecture.get("summary", "The visible tree is the project's first blueprint."),
+            "mode": "observed",
+            "evidence": [file_evidence(item.get("evidence") or main_area) for item in architecture.get("flow", [])[:2]],
+        },
+        {
+            "id": "hall-history",
+            "label": "History hall",
+            "question": "Why does it look this way now?",
+            "takeaway": analysis.get("historySummary", analysis.get("thesis", "The current shape is the result of observable changes over time.")),
+            "mode": "mixed",
+            "evidence": history_evidence,
+        },
+    ]
+    if dependencies:
+        rooms.append({
+            "id": "hall-dependencies",
+            "label": "Ecosystem room",
+            "question": "What supports it?",
+            "takeaway": f"{len(dependencies)} direct dependencies are visible in {manifest_path or 'the project manifests'}; they show which capabilities the repository borrows.",
+            "mode": "observed",
+            "evidence": [file_evidence(manifest_path or first_evidence)],
+        })
+    rooms.append({
+        "id": "hall-opera",
+        "label": "Exit workshop",
+        "question": "What should I remember?",
+        "takeaway": analysis.get("exit", "Remember the project as a map from purpose to path, parts, and history."),
+        "mode": "mixed",
+        "evidence": [file_evidence(first_evidence), *history_evidence[-1:]],
+    })
+    return {
+        "promise": "By the end, you can explain the project's purpose, follow one likely use path, and connect its current shape to the public history.",
+        "rooms": rooms,
+    }
+
+
 def main() -> None:
     if not (ROOT / ".git").exists():
         raise SystemExit("Repo Museum Agent must run from a Git repository root.")
@@ -308,6 +382,7 @@ def main() -> None:
     orientation = build_orientation(description, readme_text, language)
     architecture = build_architecture(files, manifest_path, readme_path, language)
     journey = build_journey(files, readme_path, manifest_path, architecture)
+    learning = build_learning(orientation, journey, architecture, analysis, dependencies, readme_path, manifest_path)
     branch = maybe_run("symbolic-ref", "--short", "HEAD") or "main"
     artifact = {
         "version": "1.0",
@@ -334,6 +409,7 @@ def main() -> None:
         "architecture": architecture,
         "commits": [{"sha": commit["shortSha"], "date": commit["date"][:10], "score": min(100, 20 + sum(commit_stats(commit["sha"]).values()))} for commit in commits[:20]],
         "analysis": analysis,
+        "learning": learning,
         "sources": [{"type": "commit", "ref": commit["sha"], "label": commit["shortSha"]} for commit in commits[:10]] + ([{"type": "file", "ref": manifest_path, "label": manifest_path}] if manifest_path else []),
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

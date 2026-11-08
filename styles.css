@@ -386,3 +386,45 @@ body.has-scrolled .topbar {
   .analysis-signal { display: block; }
   .analysis-signal strong { display: block; margin-bottom: 3px; }
 }
+
+/* Iteration 03: turn navigation into a learning loop. */
+.floor-plan-note { max-width: 760px; margin: -6px 0 17px; color: rgba(29, 45, 49, 0.72); font-size: 12px; line-height: 1.5; }
+.map-room { gap: 8px; justify-content: flex-start; }
+.map-room p { min-height: 52px; margin: 0; color: var(--ink); font-size: 11px; line-height: 1.45; }
+.map-room-status { margin-top: auto; color: var(--muted) !important; font-family: var(--mono); font-size: 8px !important; letter-spacing: 0.07em; }
+.map-room.is-understood { border-color: var(--coral-dark); background: rgba(255, 253, 249, 0.82); }
+.map-room.is-understood .map-room-status { color: var(--coral-dark) !important; }
+.room-learning { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; margin: -1px 0 26px; padding: 16px 18px; border: 1px solid var(--line); border-left: 4px solid var(--mustard); background: rgba(230, 185, 79, 0.12); }
+.room-learning-copy { display: grid; gap: 7px; }
+.room-learning-copy .subsection-label { margin: 0; }
+.room-learning-copy strong { max-width: 700px; font-family: var(--display); font-size: 16px; line-height: 1.2; letter-spacing: -0.025em; }
+.room-learning-action { display: flex; align-items: center; gap: 12px; }
+.learning-mode { color: var(--muted); font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; }
+.understand-button { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 10px; border: 1px solid var(--ink); color: var(--ink); background: var(--white); font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; transition: transform 180ms ease, background 180ms ease, color 180ms ease; }
+.understand-button:hover { transform: translate(-2px, -2px); background: var(--ink); color: var(--white); }
+.understand-button.is-understood { border-color: var(--coral-dark); color: var(--white); background: var(--coral-dark); }
+.learning-evidence { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 14px; padding-top: 10px; border-top: 1px solid rgba(29, 45, 49, 0.12); }
+.learning-evidence a, .history-evidence a { color: var(--coral-dark); font-family: var(--mono); font-size: 9px; }
+.journey-closer { margin: 0 0 2px; border-top: 1px solid var(--line); }
+.journey-closer summary { padding-top: 10px; color: var(--coral-dark); cursor: pointer; font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; list-style: none; }
+.journey-closer summary::-webkit-details-marker { display: none; }
+.journey-closer summary::before { content: "+"; display: inline-block; width: 15px; color: var(--ink); }
+.journey-closer[open] summary::before { content: "−"; }
+.journey-technical { margin: 10px 0 0; }
+.history-evidence { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 13px; }
+.history-chapter { min-height: 220px; }
+.lesson-status { grid-column: 2 / -1; justify-self: start; color: var(--muted); font-family: var(--mono); font-size: 8px; letter-spacing: 0.07em; }
+.lesson-status.is-understood { color: var(--coral-dark); }
+.visit-progress small { white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .room-learning { grid-template-columns: 1fr; gap: 14px; }
+  .room-learning-action { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .learning-evidence { grid-column: auto; }
+}
+
+@media (max-width: 620px) {
+  .floor-plan-note { margin-bottom: 14px; }
+  .map-room p { min-height: 0; }
+  .journey-closer summary { min-height: 28px; }
+}

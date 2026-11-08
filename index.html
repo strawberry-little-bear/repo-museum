@@ -126,11 +126,12 @@
 
           <div id="museum-content">
             <div class="visit-bar" aria-label="Visit controls">
-              <div class="visit-progress"><span class="visit-room-label" id="visit-room-label">Room 01 of 06</span><div class="visit-progress-track"><span id="visit-progress-fill"></span></div><span id="visit-room-name">The foyer</span><small id="visit-learning">0 rooms visited</small></div>
+              <div class="visit-progress"><span class="visit-room-label" id="visit-room-label">Room 01 of 06</span><div class="visit-progress-track"><span id="visit-progress-fill"></span></div><span id="visit-room-name">The foyer</span><small id="visit-learning">0 / 6 rooms understood</small></div>
               <div class="visit-modes" role="group" aria-label="View mode"><button type="button" class="mode-button is-active" data-mode="guided">Guided tour</button><button type="button" class="mode-button" data-mode="map">Floor plan</button></div>
             </div>
             <div class="floor-plan" id="floor-plan" hidden>
-              <p class="floor-plan-title">Choose a room</p>
+              <p class="floor-plan-title">Learning map</p>
+              <p class="floor-plan-note" id="visit-learning-promise">By the end of this visit, you should be able to explain the project's purpose, path, parts, and history.</p>
               <div class="floor-plan-grid" id="floor-plan-grid"></div>
             </div>
             <div class="museum-heading">
@@ -230,7 +231,7 @@
 
                 <section class="panel opera-panel" id="hall-opera">
                   <div class="panel-heading"><div><p class="panel-kicker">Room 06 · Exit workshop</p><h4>Can you now tell the story yourself?</h4></div><span class="panel-number">06 / 06</span></div>
-                  <div class="exit-intro"><p id="exit-intro">Leave with a mental model, not a pile of facts. These are the three questions you should now be able to answer.</p><span class="exit-stamp">VISIT COMPLETE</span></div>
+                  <div class="exit-intro"><p id="exit-intro">Leave with a mental model, not a pile of facts. These are the three questions you should now be able to answer.</p><span class="exit-stamp" id="exit-stamp">REVIEW MAP</span></div>
                   <div class="learned-list" id="learned-list"></div>
                   <div class="opera-copy"><p>Then look at the project’s current pulse. It is a trace of activity, not a quality score.</p><button class="secondary-button" id="opera-toggle" type="button"><span id="opera-toggle-icon">▶</span><span id="opera-toggle-label">Play the pulse</span></button></div>
                   <div class="score-stage"><div class="score-axis"><span>LOUD</span><span>QUIET</span></div><div class="score-bars" id="score-bars"></div><div class="score-dates" id="score-dates"></div></div>
