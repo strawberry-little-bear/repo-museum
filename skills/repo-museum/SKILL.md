@@ -5,7 +5,7 @@ description: Curate a local Git repository into an evidence-backed Repo Museum c
 
 # Repo Museum Agent
 
-Turn a local repository into a small, evidence-backed exhibition. The output is not a quality score and must not invent intent. It should make the project's evolution legible: where it began, what changed, what it depends on, and what is happening now.
+Turn a local repository into a small, evidence-backed learning exhibition. The output is not a quality score and must not invent intent. It should help a visitor who does not know the code understand what the project does, follow one likely use path, see which visible parts make that path possible, and explain what changed over time.
 
 ## Invocation
 
@@ -19,7 +19,7 @@ Use this skill when the user asks to:
 ## Workflow
 
 1. Confirm the working directory is a Git repository. Do not inspect files outside it unless the user explicitly asks.
-2. Read the repository's tracked `README`, manifest files, top-level tree, recent and early commits, tags, and available commit statistics. Use the README and tree to orient a non-technical visitor before describing architecture.
+2. Read the repository's tracked `README`, manifest files, top-level tree, recent and early commits, tags, and available commit statistics. Use the README and tree to orient a non-technical visitor before describing architecture. Build the explanation in this order: foyer, first visitor, blueprint, history, ecosystem when dependencies are present, and exit workshop.
 3. Run the bundled collector from the repository root:
 
    ```bash
@@ -40,8 +40,9 @@ The artifact follows `schema/museum-data.schema.json` and is compatible with the
 - `events`: dated commits, tags, and releases with evidence links;
 - `dependencies`: direct dependencies with manifest paths;
 - `orientation`: a plain-language “what is it / what is it for / how should I read it” guide, grounded in the README and description;
-- `architecture`: top-level folders, important files, entry points, and a short explanation of their observable roles;
-- `analysis`: the Agent's evidence-backed thesis, signals, and three-part arc;
+- `journey`: a conservative, ordinary-language path from a person or caller to a result, with a technical translation and evidence reference for each step;
+- `architecture`: top-level folders, important files, entry points, a `flow` that maps the journey to visible repository areas, and a short explanation of their observable roles;
+- `analysis`: the Agent's evidence-backed thesis, signals, a three-part arc, a history teaching summary, and an exit prompt;
 - `sources`: every important claim's commit, tag, file, or command source.
 
 The `analysis.arc` should normally contain three entries:
@@ -51,6 +52,8 @@ The `analysis.arc` should normally contain three entries:
 - **Now**: the newest state represented by the local history.
 
 Prefer concrete language such as “the repository added a Rust workspace after…” over vague language such as “the team matured.”
+
+The `journey` is a teaching model, not a claim that the collector has executed the project. When runtime behavior is not directly observable from tracked files, say that the path is inferred and link to the README, manifest, tree area, or test/example evidence that motivated it.
 
 ## Safety and privacy
 

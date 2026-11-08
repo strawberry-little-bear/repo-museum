@@ -19,6 +19,18 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="entrance-screen" id="entrance-screen" aria-labelledby="entrance-title">
+      <div class="entrance-door entrance-door-left" aria-hidden="true"></div>
+      <div class="entrance-door entrance-door-right" aria-hidden="true"></div>
+      <div class="entrance-copy">
+        <p class="entrance-mark">REPO MUSEUM / LEARNING EXHIBITION</p>
+        <h1 id="entrance-title">Walk in.<br /><em>Leave understanding.</em></h1>
+        <p>We will take one repository apart slowly: what problem it solves, what happens when someone uses it, how the parts work together, and why the project changed over time.</p>
+        <button class="entrance-button" id="enter-museum" type="button"><span>Enter the museum</span><span aria-hidden="true">→</span></button>
+        <button class="entrance-link" id="peek-museum" type="button">Look around first</button>
+      </div>
+      <div class="entrance-sign" aria-hidden="true"><span>RM—001</span><span>OPEN TO THE PUBLIC</span></div>
+    </div>
     <div class="site-shell">
       <header class="topbar">
         <a class="brand" href="#top" aria-label="Repo Museum home">
@@ -35,11 +47,10 @@
       <main id="top">
         <section class="hero" id="visit">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="eyebrow-line"></span> A guided visit through a living project</p>
-            <h1>Every repository<br /><em>has a story.</em></h1>
+            <p class="eyebrow"><span class="eyebrow-line"></span> A guided visit for people who do not know the code yet</p>
+            <h1>Start with a question.<br /><em>Leave with a map.</em></h1>
             <p class="hero-lede">
-              Start with what the project is for, then walk through the structure, turning points,
-              ecosystem, and current pulse. No code knowledge required.
+              Repo Museum turns a repository into a lesson. You will meet the project in plain language before you meet its files, then follow one use-case through the machinery that makes it work.
             </p>
             <form class="repo-form" id="repo-form">
               <label class="sr-only" for="repo-input">GitHub repository URL</label>
@@ -59,7 +70,7 @@
               <span class="action-divider"></span>
               <button type="button" class="text-button" id="demo-button">View the demo <span>↗</span></button>
             </div>
-            <div class="hero-note"><span class="shield-icon">◈</span><span>Public repositories only. Nothing is uploaded.</span><span class="hero-note-divider"></span><span>Five rooms, one clear story.</span></div>
+            <div class="hero-note"><span class="shield-icon">◈</span><span>Public repositories only. Nothing is uploaded.</span><span class="hero-note-divider"></span><span>Learn first. Inspect evidence second.</span></div>
           </div>
           <div class="hero-visual" aria-label="Abstract museum archive illustration">
             <div class="exhibit-card exhibit-card-back"></div>
@@ -88,7 +99,7 @@
           <div class="stage-header">
             <div>
               <p class="section-kicker">Now showing</p>
-              <h2>One project, five rooms.</h2>
+              <h2>One project, a guided lesson.</h2>
             </div>
             <div class="stage-meta">
               <span class="live-dot"></span>
@@ -115,7 +126,7 @@
 
           <div id="museum-content">
             <div class="visit-bar" aria-label="Visit controls">
-              <div class="visit-progress"><span class="visit-room-label" id="visit-room-label">Room 01 of 05</span><div class="visit-progress-track"><span id="visit-progress-fill"></span></div><span id="visit-room-name">The foyer</span></div>
+              <div class="visit-progress"><span class="visit-room-label" id="visit-room-label">Room 01 of 06</span><div class="visit-progress-track"><span id="visit-progress-fill"></span></div><span id="visit-room-name">The foyer</span><small id="visit-learning">0 rooms visited</small></div>
               <div class="visit-modes" role="group" aria-label="View mode"><button type="button" class="mode-button is-active" data-mode="guided">Guided tour</button><button type="button" class="mode-button" data-mode="map">Floor plan</button></div>
             </div>
             <div class="floor-plan" id="floor-plan" hidden>
@@ -137,11 +148,12 @@
               <aside class="exhibition-index" aria-label="Exhibition index">
                 <p class="index-title">Floor plan</p>
                 <button class="index-item is-active" data-target="hall-overview"><span>01</span><span>The foyer</span><span>↗</span></button>
-                <button class="index-item" data-target="hall-architecture"><span>02</span><span>Blueprint room</span><span>↗</span></button>
-                <button class="index-item" data-target="hall-history"><span>03</span><span>History hall</span><span>↗</span></button>
-                <button class="index-item" data-target="hall-dependencies"><span>04</span><span>Ecosystem room</span><span>↗</span></button>
-                <button class="index-item" data-target="hall-opera"><span>05</span><span>Workshop</span><span>↗</span></button>
-                <div class="index-note"><span class="note-mark">✦</span><p>Every conclusion is grounded in a public source or a local Agent reading of the repository.</p></div>
+                <button class="index-item" data-target="hall-journey"><span>02</span><span>First visitor</span><span>↗</span></button>
+                <button class="index-item" data-target="hall-architecture"><span>03</span><span>Blueprint room</span><span>↗</span></button>
+                <button class="index-item" data-target="hall-history"><span>04</span><span>History hall</span><span>↗</span></button>
+                <button class="index-item" data-target="hall-dependencies"><span>05</span><span>Ecosystem room</span><span>↗</span></button>
+                <button class="index-item" data-target="hall-opera"><span>06</span><span>Exit workshop</span><span>↗</span></button>
+                <div class="index-note"><span class="note-mark">✦</span><p>The tour answers one question at a time. Every explanation points back to a README, file, commit, release, or manifest.</p></div>
               </aside>
 
               <div class="exhibition-panels">
@@ -151,6 +163,8 @@
                     <div><p class="orientation-question">Start here</p><h5 id="orientation-one-line">A plain-language orientation is being prepared.</h5></div>
                     <div class="orientation-copy"><p id="orientation-what">This project is waiting to be described in ordinary language.</p><div class="orientation-details"><span><b>Used for</b><strong id="orientation-use">—</strong></span><span><b>How to read it</b><strong id="orientation-how">—</strong></span></div></div>
                   </div>
+                  <div class="visitor-promise"><span class="subsection-label">By the end of this visit, you should be able to say:</span><strong id="orientation-outcome">what this project does, how a request moves through it, and why its history matters.</strong></div>
+                  <div class="orientation-example"><span class="subsection-label">A concrete starting picture</span><p id="orientation-example">Imagine a person using the project for the first time. The next room follows that person’s request through the repository.</p></div>
                   <div class="overview-grid">
                     <div class="overview-poster">
                       <div class="poster-top"><span id="poster-language">JAVASCRIPT</span><span id="poster-license">MIT</span></div>
@@ -173,38 +187,52 @@
                     <div class="story-arc" id="story-arc"></div>
                     <div class="analysis-signals" id="analysis-signals"></div>
                   </div>
-                  <div class="room-footer"><span>Next question: how is it made?</span><button type="button" class="room-next" data-next="hall-architecture">Enter the blueprint room <span>→</span></button></div>
+                  <div class="room-footer"><span>Next question: what happens when someone uses it?</span><button type="button" class="room-next" data-next="hall-journey">Follow a first visitor <span>→</span></button></div>
+                </section>
+
+                <section class="panel journey-panel" id="hall-journey">
+                  <div class="panel-heading"><div><p class="panel-kicker">Room 02 · The first visitor</p><h4>What happens when someone uses it?</h4></div><span class="panel-number">02 / 06</span></div>
+                  <div class="room-lede"><p id="journey-intro">Before reading source code, follow one ordinary request from the person using the project to the result they receive.</p><span class="evidence-label">A guided explanation, grounded in the repository</span></div>
+                  <div class="journey-flow" id="journey-flow"></div>
+                  <div class="journey-caption"><span class="subsection-label">The short version</span><strong id="journey-summary">A request enters, the project does its work, and a result comes back.</strong></div>
+                  <div class="glossary-block"><div><p class="subsection-label">Words you may meet</p><p class="glossary-note">No prior code vocabulary is required. These are the few terms that unlock the next room.</p></div><div class="glossary-list" id="glossary-list"></div></div>
+                  <div class="panel-footer"><span id="journey-source-note">The journey is an interpretation of the README, scripts, and visible project structure.</span><a class="source-chip" id="journey-source" href="#" target="_blank" rel="noreferrer">↗ Read the introduction</a></div>
+                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-overview">← Back to the foyer</button><span>Next question: what parts make that journey possible?</span><button type="button" class="room-next" data-next="hall-architecture">Enter the blueprint room <span>→</span></button></div>
                 </section>
 
                 <section class="panel architecture-panel" id="hall-architecture">
-                  <div class="panel-heading"><div><p class="panel-kicker">Room 02 · Blueprint room</p><h4>How is this project made?</h4></div><span class="panel-number">02 / 05</span></div>
+                  <div class="panel-heading"><div><p class="panel-kicker">Room 03 · Blueprint room</p><h4>Which parts make the journey possible?</h4></div><span class="panel-number">03 / 06</span></div>
                   <div class="architecture-intro"><p id="architecture-summary">The Agent is reading the project's visible structure.</p><span class="evidence-label">Observed from the current tree</span></div>
+                  <div class="machine-map" id="machine-map"></div>
                   <div class="architecture-grid"><div><p class="subsection-label">Main rooms</p><div class="architecture-list" id="architecture-folders"></div></div><div><p class="subsection-label">Important objects</p><div class="architecture-list" id="architecture-files"></div></div></div>
                   <div class="entrypoint-strip"><span class="subsection-label">Where the visit can begin</span><div id="architecture-entrypoints"></div></div>
                   <div class="panel-footer"><span id="architecture-source-note">Every role is an evidence-backed reading, not a claim about intent.</span><a class="source-chip" id="architecture-source" href="#" target="_blank" rel="noreferrer">↗ Open repository tree</a></div>
-                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-overview">← Return to the foyer</button><span>Next question: what changed?</span><button type="button" class="room-next" data-next="hall-history">Walk into the history hall <span>→</span></button></div>
+                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-journey">← Return to the visitor path</button><span>Next question: why does it look this way now?</span><button type="button" class="room-next" data-next="hall-history">Walk into the history hall <span>→</span></button></div>
                 </section>
 
                 <section class="panel history-panel" id="hall-history">
-                  <div class="panel-heading"><div><p class="panel-kicker">Room 03 · History hall</p><h4>What changed, and why does it matter?</h4></div><span class="panel-number">03 / 05</span></div>
-                  <div class="room-lede"><p>The Agent turns raw commits into a small arc. Open any marker when you want to inspect the evidence behind the reading.</p></div>
+                  <div class="panel-heading"><div><p class="panel-kicker">Room 04 · History hall</p><h4>How did the project become this version?</h4></div><span class="panel-number">04 / 06</span></div>
+                  <div class="room-lede"><p id="history-summary">The history is not a list of dates. It is a sequence of decisions that changed what the project could do.</p></div>
+                  <div class="history-arc" id="history-arc"></div>
                   <div class="timeline" id="timeline"></div>
                   <div class="panel-footer"><a class="source-chip" id="history-source" href="https://github.com/vitejs/vite/commits/main" target="_blank" rel="noreferrer">↗ GitHub commits</a><span id="history-note">Showing the latest public markers in this collection</span></div>
-                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-architecture">← Back to the blueprint</button><span>Next question: what does it rely on?</span><button type="button" class="room-next" data-next="hall-dependencies">Enter the ecosystem room <span>→</span></button></div>
+                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-architecture">← Back to the blueprint</button><span>Next question: what else is in the room with it?</span><button type="button" class="room-next" data-next="hall-dependencies">Enter the ecosystem room <span>→</span></button></div>
                 </section>
 
                 <section class="panel aquarium-panel" id="hall-dependencies">
                   <div class="panel-heading"><div><p class="panel-kicker">Room 04 · Ecosystem room</p><h4>What does this project rely on?</h4></div><span class="panel-number">04 / 05</span></div>
-                  <div class="aquarium-intro"><p>Dependencies are the tools and libraries that give the project its working context. This room only shows what the public scan could actually find.</p><span id="dependency-count">0 specimens observed</span></div>
+                  <div class="aquarium-intro"><p>Dependencies are supporting characters: they provide capabilities this repository does not build from scratch. Seeing them helps explain the project’s choices and boundaries.</p><span id="dependency-count">0 specimens observed</span></div>
                   <div class="aquarium-stage" id="aquarium-stage"></div>
                   <div class="dependency-list" id="dependency-list"></div>
                   <div class="panel-footer"><a class="source-chip" id="dependency-source" href="https://github.com/vitejs/vite/blob/main/package.json" target="_blank" rel="noreferrer">↗ Manifest files</a><span>Direct dependencies only in this first survey</span></div>
-                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-history">← Back to history</button><span>Last question: how is it alive now?</span><button type="button" class="room-next" data-next="hall-opera">Enter the workshop <span>→</span></button></div>
+                  <div class="room-footer"><button type="button" class="room-back" data-next="hall-history">← Back to history</button><span>Last question: what should you remember?</span><button type="button" class="room-next" data-next="hall-opera">Enter the exit workshop <span>→</span></button></div>
                 </section>
 
                 <section class="panel opera-panel" id="hall-opera">
-                  <div class="panel-heading"><div><p class="panel-kicker">Room 05 · Workshop</p><h4>How is the project alive now?</h4></div><span class="panel-number">05 / 05</span></div>
-                  <div class="opera-copy"><p>Recent commits become a small pulse. Play it, then use the bars as a visual index back to the project's latest work.</p><button class="secondary-button" id="opera-toggle" type="button"><span id="opera-toggle-icon">▶</span><span id="opera-toggle-label">Play the pulse</span></button></div>
+                  <div class="panel-heading"><div><p class="panel-kicker">Room 06 · Exit workshop</p><h4>Can you now tell the story yourself?</h4></div><span class="panel-number">06 / 06</span></div>
+                  <div class="exit-intro"><p id="exit-intro">Leave with a mental model, not a pile of facts. These are the three questions you should now be able to answer.</p><span class="exit-stamp">VISIT COMPLETE</span></div>
+                  <div class="learned-list" id="learned-list"></div>
+                  <div class="opera-copy"><p>Then look at the project’s current pulse. It is a trace of activity, not a quality score.</p><button class="secondary-button" id="opera-toggle" type="button"><span id="opera-toggle-icon">▶</span><span id="opera-toggle-label">Play the pulse</span></button></div>
                   <div class="score-stage"><div class="score-axis"><span>LOUD</span><span>QUIET</span></div><div class="score-bars" id="score-bars"></div><div class="score-dates" id="score-dates"></div></div>
                   <div class="player-controls"><button class="icon-button" id="mute-button" type="button" title="Mute pulse" aria-label="Mute pulse">♫</button><span id="score-caption">Commit pulse / 12 markers</span><label class="speed-control">Speed <select id="speed-select"><option value="1">1×</option><option value="1.5">1.5×</option><option value="0.7">0.7×</option></select></label></div>
                   <div class="final-map"><p class="subsection-label">Leave with a map</p><p id="final-summary">You have traced the project from purpose to present-day motion.</p><button type="button" class="room-next" data-next="hall-overview">Walk the collection again <span>↺</span></button></div>

@@ -136,8 +136,33 @@ def build_orientation(description: str, readme: str, language: str) -> dict[str,
         "oneLine": description or "A project with a story still being written.",
         "use": readable[:180] if readable else f"Explore the repository's {language} code and public history.",
         "how": "Read the introduction, then move through the tree and history to see how the project is assembled." if readable else "Start with the visible tree, then use commits and manifests to understand how it is assembled.",
+        "outcome": "what this project does, how a request moves through it, and why its history matters.",
+        "example": "Start with an ordinary person using the project. The next room follows that action through the repository.",
         "guide": "The orientation begins with the README and description, then points to structure and history." if readable else "The orientation is a rule-based reading of the local repository record.",
         "sourceNote": "Based on the tracked README and repository description." if readable else "Based on the repository description; no tracked README was available.",
+    }
+
+
+def build_journey(files: list[str], readme_path: str | None, manifest_path: str | None, architecture: dict[str, Any]) -> dict[str, Any]:
+    evidence = readme_path or manifest_path or architecture.get("files", [{}])[0].get("evidence") or "README.md"
+    main_area = next((item["evidence"] for item in architecture.get("folders", []) if item["name"].lower() in {"src", "lib", "app", "packages", "server", "core"}), None)
+    result_area = next((item["evidence"] for item in architecture.get("folders", []) if item["name"].lower() in {"test", "tests", "examples", "example", "demo", "playground", "docs"}), None)
+    return {
+        "intro": "Before reading source code, follow one ordinary request from the person using the project to the result they receive. The repository is the machinery between those two moments.",
+        "summary": "An input enters, the project transforms or coordinates it, and a result comes back. This is a teaching model inferred from the tracked tree and public project documents.",
+        "steps": [
+            {"number": "01", "label": "A person starts", "title": "The request begins outside the code", "plain": "Someone gives the project an input, opens it, or runs one of its commands.", "technical": "The README and visible entry files describe the first boundary into the system.", "evidence": evidence},
+            {"number": "02", "label": "The project receives it", "title": "An entry point accepts the request", "plain": "One visible part of the repository is responsible for receiving that action.", "technical": "Scripts, commands, routes, or exported modules form the project's entry surface.", "evidence": evidence},
+            {"number": "03", "label": "The work happens", "title": "The project coordinates its parts", "plain": "The request moves through the main implementation and any supporting tools it needs.", "technical": "The source tree and dependency manifest reveal the components involved.", "evidence": main_area or evidence},
+            {"number": "04", "label": "A result returns", "title": "The project produces something useful", "plain": "The person receives a page, file, answer, transformation, or other result.", "technical": "Examples, tests, and public documentation are the strongest visible clues about the output.", "evidence": result_area or evidence},
+            {"number": "05", "label": "The project is maintained", "title": "The loop starts again", "plain": "People change the project, release new versions, and keep the path working.", "technical": "Git history, manifests, and release markers show how the system continues to evolve.", "evidence": evidence},
+        ],
+        "glossary": [
+            {"term": "entry point", "plain": "A place where a person, command, or another program enters the project."},
+            {"term": "implementation", "plain": "The part that performs the project's main work."},
+            {"term": "dependency", "plain": "A capability the project borrows instead of building itself."},
+        ],
+        "sourceNote": "Teaching path inferred from the tracked README, visible tree, manifest, and Git history. It explains a likely path without claiming hidden runtime behavior.",
     }
 
 
@@ -163,6 +188,13 @@ def build_architecture(files: list[str], manifest_path: str | None, readme_path:
     entrypoints = [item["name"] for item in file_items if re.search(r"readme|package|pyproject|cargo|go\.mod", item["name"], re.I)][:3]
     return {
         "summary": f"{language} project with {len(folders) or 'a visible'} top-level area{'s' if len(folders) != 1 else ''} and {len(file_items) or 'a small set of'} notable project file{'s' if len(file_items) != 1 else ''}.",
+        "flow": [
+            {"label": "Person or caller", "role": "Where the request begins", "detail": "A user, command, or another system gives the project something to do.", "evidence": readme_path or manifest_path or "README.md"},
+            {"label": "Entry point", "role": "The front door", "detail": "A script, route, command, or exported function accepts the request.", "evidence": file_items[0]["evidence"] if file_items else readme_path or manifest_path or "README.md"},
+            {"label": "Main implementation", "role": "Where the work happens", "detail": "The visible source areas coordinate the project's main behavior.", "evidence": next((item["evidence"] for item in folders if item["name"].lower() in {"src", "lib", "app", "packages", "server", "core"}), folders[0]["evidence"] if folders else readme_path or "README.md")},
+            {"label": "Supporting tools", "role": "Capabilities the project borrows", "detail": "Dependencies and configuration fill in the parts the repository does not build alone.", "evidence": manifest_path or (file_items[0]["evidence"] if file_items else None) or readme_path or "README.md"},
+            {"label": "Result", "role": "What comes back", "detail": "Documentation, examples, tests, or the public description show the project's output.", "evidence": next((item["evidence"] for item in folders if item["name"].lower() in {"test", "tests", "examples", "example", "demo", "playground", "docs"}), readme_path or manifest_path or "README.md")},
+        ],
         "folders": folders,
         "files": file_items,
         "entrypoints": entrypoints,
@@ -226,13 +258,15 @@ def build_analysis(commits: list[dict[str, Any]], files: list[str], dependencies
     turning, turning_stats = find_turning_point(commits)
     language_signal = "JavaScript" if any(path.endswith((".js", ".ts", ".tsx")) for path in files) else "Python" if any(path.endswith(".py") for path in files) else "a mixed stack"
     arc = [
-        {"label": "Origin", "title": oldest["subject"][:64], "summary": f"The oldest visible record starts the project with {oldest['author']} on {oldest['date'][:10]}.", "evidence": [{"type": "commit", "ref": oldest["sha"], "label": oldest["shortSha"]}]},
-        {"label": "Turning point", "title": turning["subject"][:64], "summary": f"This is the largest observed change in the local sample: {turning_stats.get('files', 0)} files, +{turning_stats.get('additions', 0)}/-{turning_stats.get('deletions', 0)} lines.", "evidence": [{"type": "commit", "ref": turning["sha"], "label": turning["shortSha"]}]},
-        {"label": "Now", "title": newest["subject"][:64], "summary": f"The latest record keeps the archive current in {language_signal}, with {len(dependencies)} direct dependencies found in the visible manifests.", "evidence": [{"type": "commit", "ref": newest["sha"], "label": newest["shortSha"]}]},
+        {"label": "Origin", "title": oldest["subject"][:64], "summary": f"The oldest visible record starts the project with {oldest['author']} on {oldest['date'][:10]}.", "lesson": "Read this as the project's starting shape, not as proof of the author's full intention.", "evidence": [{"type": "commit", "ref": oldest["sha"], "label": oldest["shortSha"]}]},
+        {"label": "Turning point", "title": turning["subject"][:64], "summary": f"This is the largest observed change in the local sample: {turning_stats.get('files', 0)} files, +{turning_stats.get('additions', 0)}/-{turning_stats.get('deletions', 0)} lines.", "lesson": "This is the clearest observable shift in the sampled history; the evidence shows movement, but not the team's private motivation.", "evidence": [{"type": "commit", "ref": turning["sha"], "label": turning["shortSha"]}]},
+        {"label": "Now", "title": newest["subject"][:64], "summary": f"The latest record keeps the archive current in {language_signal}, with {len(dependencies)} direct dependencies found in the visible manifests.", "lesson": "The newest record shows what the project is maintaining now, while the broader direction remains an evidence-backed interpretation.", "evidence": [{"type": "commit", "ref": newest["sha"], "label": newest["shortSha"]}]},
     ]
     return {
         "headline": f"A project shaped by {len(commits)} visible changes.",
         "thesis": f"The local record reads as a {language_signal} project whose story is best understood through its first commit, its largest structural movement, and its current cadence.",
+        "historySummary": "The history is not a list of dates. It is a sequence of observable changes: a beginning, a strongest movement in the sample, and the shape being maintained now.",
+        "exit": "Leave with a mental model, not a pile of facts. You should now be able to explain the project's purpose, follow a likely use path, and name the evidence behind its current shape.",
         "confidence": "evidence-backed local analysis",
         "arc": arc,
         "signals": [
@@ -273,6 +307,7 @@ def main() -> None:
     description = manifest_meta.get("description") or "A local repository examined through its own evidence."
     orientation = build_orientation(description, readme_text, language)
     architecture = build_architecture(files, manifest_path, readme_path, language)
+    journey = build_journey(files, readme_path, manifest_path, architecture)
     branch = maybe_run("symbolic-ref", "--short", "HEAD") or "main"
     artifact = {
         "version": "1.0",
@@ -295,6 +330,7 @@ def main() -> None:
         "dependencies": dependencies[:12],
         "manifestPath": manifest_path,
         "orientation": orientation,
+        "journey": journey,
         "architecture": architecture,
         "commits": [{"sha": commit["shortSha"], "date": commit["date"][:10], "score": min(100, 20 + sum(commit_stats(commit["sha"]).values()))} for commit in commits[:20]],
         "analysis": analysis,

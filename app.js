@@ -8,15 +8,41 @@ const demoData = {
   defaultBranch: "main",
   manifestPath: "package.json",
   orientation: {
-    what: "Vite is a build tool and local development server for modern web projects.",
-    oneLine: "A fast workshop for turning source files into a running web app.",
-    use: "Develop, bundle, and preview frontend applications.",
-    how: "Read the source tree first, then follow the package scripts and recent releases.",
+    what: "Vite is the workshop that turns a developer's source files into a running web app while they work, then packages that app for release.",
+    oneLine: "A fast workshop between your source files and the browser.",
+    use: "Develop, bundle, and preview frontend applications without waiting for the whole project to rebuild after every edit.",
+    how: "Follow one file from the developer's edit, through the dev server and plugin pipeline, to the browser and finally the production build.",
+    outcome: "what Vite does, why the browser can update quickly, and how its development path differs from its release path.",
+    example: "Imagine saving a component. Vite notices the change, transforms only what is needed, and tells the browser to update that part instead of starting over.",
     guide: "The public description and README are the starting evidence for this orientation.",
     sourceNote: "Based on the repository description and README scan.",
   },
+  journey: {
+    intro: "Before reading files, follow the everyday moment Vite is designed to make feel instant: a developer changes source code and sees the browser respond.",
+    summary: "Source change → Vite finds and transforms the affected module → the browser receives a focused update. A production build takes a different route and bundles the finished app.",
+    steps: [
+      { number: "01", label: "A person changes source", title: "The request begins with an edit", plain: "A developer saves a file in the app they are building.", technical: "Source files enter the development server's module graph.", evidence: "README.md" },
+      { number: "02", label: "The project locates it", title: "Vite finds what is affected", plain: "The project works out which part of the app needs attention instead of treating everything as new.", technical: "The module graph tracks relationships between imported files.", evidence: "packages" },
+      { number: "03", label: "The project translates it", title: "Plugins make the file usable", plain: "Files such as TypeScript or Vue components are transformed into something the browser can understand.", technical: "The plugin pipeline handles transforms and module loading.", evidence: "packages" },
+      { number: "04", label: "The browser responds", title: "Only the useful change travels", plain: "The browser receives an update and the developer can keep working in place.", technical: "Hot Module Replacement keeps the running page connected to the dev server.", evidence: "packages" },
+      { number: "05", label: "The project ships", title: "Release uses a bundling path", plain: "When the app is ready, the project prepares files that can be served in production.", technical: "The build path coordinates Rollup and the production plugin pipeline.", evidence: "package.json" },
+    ],
+    glossary: [
+      { term: "module", plain: "One file or unit of code that another file can use." },
+      { term: "plugin", plain: "An extension that teaches the tool how to handle a kind of file or task." },
+      { term: "HMR", plain: "A short name for updating a running page without throwing away the whole session." },
+    ],
+    sourceNote: "A teaching model assembled from the README, package scripts, visible tree, and project vocabulary.",
+  },
   architecture: {
-    summary: "A multi-package JavaScript workspace organized around the build tool, its plugins, and tests.",
+    summary: "A multi-package JavaScript workspace organized around a dev server, a module graph, plugin packages, and the production build path.",
+    flow: [
+      { label: "Source files", role: "Where the developer starts", detail: "Your app, styles, and assets enter here.", evidence: "playground" },
+      { label: "Dev server", role: "The responsive front door", detail: "Serves modules and watches for changes.", evidence: "packages" },
+      { label: "Plugin pipeline", role: "The translator", detail: "Turns project-specific files into browser-ready modules.", evidence: "packages" },
+      { label: "Module graph", role: "The map of relationships", detail: "Keeps track of what changed and what depends on it.", evidence: "packages" },
+      { label: "Production build", role: "The shipping route", detail: "Packages the finished application for deployment.", evidence: "package.json" },
+    ],
     folders: [
       { name: "packages", role: "Where the main product modules live", evidence: "packages" },
       { name: "playground", role: "Small projects used to exercise behavior", evidence: "playground" },
@@ -93,6 +119,8 @@ const state = {
   currentRepo: "vitejs/vite",
   artifactPath: null,
   mode: "demo",
+  visitedRooms: new Set(),
+  entered: false,
 };
 
 const el = (id) => document.getElementById(id);
@@ -219,8 +247,32 @@ function buildOrientation(repository, readmeText, manifestMeta = {}) {
     oneLine: description,
     use: source ? source.slice(0, 180) : `Explore the repository's ${language} code and public history.`,
     how: source ? "Read the introduction, then move through the tree and history to see how the project is assembled." : "Start with the visible tree, then use commits and manifests to understand how it is assembled.",
+    outcome: `what ${repository.name || "this project"} does, how a request moves through it, and why its history matters.`,
+    example: "Start with an ordinary person using the project. The next room follows that action through the repository.",
     guide: source ? "The orientation begins with the repository description and its README, then points to structure and history." : "The orientation is a rule-based reading of public repository metadata.",
     sourceNote: source ? "Based on the public description and README." : "Based on the public repository description; README text was not available.",
+  };
+}
+
+function buildJourney(repository, readmeText, architecture, manifestPath) {
+  const name = repository.name || "this project";
+  const evidence = architecture?.files?.[0]?.evidence || manifestPath || "README.md";
+  return {
+    intro: `Before reading files, follow one ordinary use of ${name}: a person gives it an input and waits for a result. The repository is the machinery between those two moments.`,
+    summary: "An input enters, the project transforms or coordinates it, and a result comes back. The exact path depends on this repository's purpose.",
+    steps: [
+      { number: "01", label: "A person starts", title: "The request begins outside the code", plain: "Someone gives the project an input, opens it, or runs one of its commands.", technical: "The public README and entry files describe the first boundary into the system.", evidence },
+      { number: "02", label: "The project receives it", title: "An entry point accepts the request", plain: "One visible part of the repository is responsible for receiving that action.", technical: "Scripts, commands, routes, or exported modules form the project's entry surface.", evidence },
+      { number: "03", label: "The work happens", title: "The project coordinates its parts", plain: "The request moves through the main implementation and any supporting tools it needs.", technical: "The source tree and dependency manifest reveal the components involved.", evidence: architecture?.folders?.[0]?.evidence || evidence },
+      { number: "04", label: "A result returns", title: "The project produces something useful", plain: "The person receives a page, file, answer, transformation, or other result.", technical: "Tests, examples, and public documentation show what the project considers a result.", evidence: architecture?.folders?.find((item) => /test|example|demo|docs/i.test(item.name))?.evidence || evidence },
+      { number: "05", label: "The project is maintained", title: "The loop starts again", plain: "People change the project, release new versions, and keep the path working.", technical: "Git history, manifests, and release markers show how the system continues to evolve.", evidence: "README.md" },
+    ],
+    glossary: [
+      { term: "entry point", plain: "A place where a person, command, or another program enters the project." },
+      { term: "implementation", plain: "The part that performs the project's main work." },
+      { term: "dependency", plain: "A capability the project borrows instead of building itself." },
+    ],
+    sourceNote: readmeText ? "Teaching path inferred from the tracked README, visible tree, manifest, and Git history." : "Teaching path inferred from the visible tree, manifest, and Git history.",
   };
 }
 
@@ -232,6 +284,13 @@ function buildArchitecture(tree = [], manifestPath, readmeText, repository) {
   if (!folders.length && !files.length) return demoData.architecture;
   return {
     summary: `${repository.language || "Mixed stack"} project with ${folders.length || "a visible"} top-level area${folders.length === 1 ? "" : "s"} and ${files.length || "a small set of"} notable project file${files.length === 1 ? "" : "s"}.`,
+    flow: [
+      { label: "Person or caller", role: "Where the request begins", detail: "A user, command, or another system gives the project something to do.", evidence: readmePath || manifestPath || "README.md" },
+      { label: "Entry point", role: "The front door", detail: "A script, route, command, or exported function accepts the request.", evidence: files[0]?.name || manifestPath || readmePath || "README.md" },
+      { label: "Main implementation", role: "Where the work happens", detail: "The visible source areas coordinate the project's main behavior.", evidence: folders.find((item) => /src|lib|app|packages|server|core/i.test(item.name))?.evidence || folders[0]?.evidence || "README.md" },
+      { label: "Supporting tools", role: "Capabilities the project borrows", detail: "Dependencies and configuration fill in the parts the repository does not build alone.", evidence: manifestPath || files[0]?.name || "README.md" },
+      { label: "Result", role: "What comes back", detail: "Documentation, examples, tests, or the public description show the project's output.", evidence: folders.find((item) => /test|example|demo|docs|dist|build/i.test(item.name))?.evidence || readmePath || "README.md" },
+    ],
     folders,
     files,
     entrypoints: entrypoints.length ? entrypoints : (readmeText ? ["README.md"] : []),
@@ -282,6 +341,7 @@ function buildLiveData(repo, repository, commits, releases, contributors, langua
     architecture: buildArchitecture(tree, manifestPath, readmeText, repository),
     events: events.slice(0, 6), dependencies, manifestPath, commits: commits.slice(0, 12).map((commit, index) => ({ sha: shortenSha(commit.sha), date: formatDate(commit.commit?.author?.date, false), score: 22 + ((commit.sha.charCodeAt(0) * 7 + index * 23) % 78) })),
   };
+  data.journey = buildJourney(repository, readmeText, data.architecture, manifestPath);
   data.analysis = buildBrowserAnalysis(data);
   return data;
 }
@@ -401,6 +461,84 @@ function renderOrientation(data) {
   el("orientation-what").textContent = orientation.what || data.description || "The public record is still being read.";
   el("orientation-use").textContent = orientation.use || "Explore the visible repository record.";
   el("orientation-how").textContent = orientation.how || "Start with the tree, then follow the history.";
+  el("orientation-outcome").textContent = orientation.outcome || "what this project does, how its parts work together, and why its history matters.";
+  el("orientation-example").textContent = orientation.example || "Start with an ordinary person using the project. The next room follows that action through the repository.";
+}
+
+function evidenceHref(data, ref) {
+  const value = ref || "";
+  const lastSegment = value.split("/").pop() || value;
+  const isFile = /\.[a-z0-9]+$/i.test(lastSegment) || /^readme$/i.test(lastSegment);
+  return `${data.htmlUrl || "#"}/${isFile ? "blob" : "tree"}/${data.defaultBranch || "main"}/${value}`;
+}
+
+function renderJourney(data) {
+  const journey = data.journey || demoData.journey;
+  el("journey-intro").textContent = journey.intro || "Follow one ordinary use of the project before looking at its files.";
+  el("journey-summary").textContent = journey.summary || "A request enters, the project does its work, and a result comes back.";
+  el("journey-source-note").textContent = journey.sourceNote || "This journey is an interpretation of the repository's public evidence.";
+  el("journey-source").href = evidenceHref(data, journey.steps?.[0]?.evidence || "README.md");
+  el("journey-flow").replaceChildren(...(journey.steps || []).map((step, index) => {
+    const article = document.createElement("article"); article.className = "journey-step";
+    const marker = document.createElement("span"); marker.className = "journey-marker"; marker.textContent = step.number || String(index + 1).padStart(2, "0");
+    const body = document.createElement("div");
+    const label = document.createElement("p"); label.className = "journey-label"; label.textContent = step.label || "Step";
+    const title = document.createElement("h5"); title.textContent = step.title || "A project step";
+    const plain = document.createElement("p"); plain.className = "journey-plain"; plain.textContent = step.plain || "The project performs a visible action.";
+    const technical = document.createElement("p"); technical.className = "journey-technical"; technical.textContent = step.technical || "The repository provides the machinery for this step.";
+    const evidence = document.createElement("a"); evidence.className = "journey-evidence"; evidence.href = evidenceHref(data, step.evidence); evidence.target = "_blank"; evidence.rel = "noreferrer"; evidence.textContent = `${step.evidence || "evidence"} ↗`;
+    body.append(label, title, plain, technical, evidence); article.append(marker, body); return article;
+  }));
+  el("glossary-list").replaceChildren(...(journey.glossary || []).map((item) => {
+    const row = document.createElement("div"); row.className = "glossary-item";
+    const term = document.createElement("strong"); term.textContent = item.term || "Term";
+    const definition = document.createElement("span"); definition.textContent = item.plain || item.definition || "A word used in this project.";
+    row.append(term, definition); return row;
+  }));
+}
+
+function renderMachineMap(data) {
+  const flow = data.architecture?.flow || demoData.architecture.flow || [];
+  el("machine-map").replaceChildren(...flow.map((item, index) => {
+    const node = document.createElement("a"); node.className = "machine-node"; node.href = evidenceHref(data, item.evidence); node.target = "_blank"; node.rel = "noreferrer";
+    const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
+    const title = document.createElement("strong"); title.textContent = item.label || "Project part";
+    const role = document.createElement("small"); role.textContent = item.role || "A visible part of the system";
+    const detail = document.createElement("p"); detail.textContent = item.detail || "Evidence from the repository tree.";
+    node.append(number, title, role, detail);
+    if (index < flow.length - 1) { const arrow = document.createElement("i"); arrow.className = "machine-arrow"; arrow.textContent = "→"; node.append(arrow); }
+    return node;
+  }));
+}
+
+function renderHistoryTeaching(data) {
+  const analysis = data.analysis || {};
+  el("history-summary").textContent = analysis.historySummary || "The history is a sequence of decisions that changed what the project could do.";
+  el("history-arc").replaceChildren(...(analysis.arc || []).slice(0, 3).map((chapter, index) => {
+    const article = document.createElement("article"); article.className = "history-chapter";
+    const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
+    const label = document.createElement("p"); label.className = "story-label"; label.textContent = chapter.label || "Chapter";
+    const title = document.createElement("h5"); title.textContent = chapter.title || "A chapter in the record";
+    const summary = document.createElement("p"); summary.textContent = chapter.lesson || chapter.summary || "The archive records a change.";
+    article.append(number, label, title, summary); return article;
+  }));
+}
+
+function renderExit(data) {
+  const orientation = data.orientation || {};
+  el("exit-intro").textContent = data.analysis?.exit || "Leave with a mental model, not a pile of facts. These are the questions you should now be able to answer.";
+  const lessons = [
+    ["What does it do?", orientation.oneLine || data.description],
+    ["How does it work?", orientation.how || "Follow the visitor path and machine map."],
+    ["Why is it this way now?", data.analysis?.thesis || "Its history explains the current shape."],
+  ];
+  el("learned-list").replaceChildren(...lessons.map(([question, answer], index) => {
+    const row = document.createElement("article"); row.className = "learned-item";
+    const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
+    const q = document.createElement("strong"); q.textContent = question;
+    const a = document.createElement("p"); a.textContent = answer || "The archive is still being read.";
+    row.append(number, q, a); return row;
+  }));
 }
 
 function renderArchitecture(data) {
@@ -413,7 +551,8 @@ function renderArchitecture(data) {
     container.replaceChildren(...(items || []).slice(0, 8).map((item) => {
       const row = document.createElement("a"); row.className = "architecture-item";
       const evidence = item.evidence || item.name || "";
-      const isFile = !evidence.includes("/") && (/\.[a-z0-9]+$/i.test(evidence) || /^readme$/i.test(evidence));
+      const lastSegment = evidence.split("/").pop() || evidence;
+      const isFile = /\.[a-z0-9]+$/i.test(lastSegment) || /^readme$/i.test(lastSegment);
       row.href = `${data.htmlUrl || "#"}/${isFile ? "blob" : "tree"}/${data.defaultBranch || "main"}/${evidence}`;
       row.target = "_blank"; row.rel = "noreferrer";
       const name = document.createElement("strong"); name.textContent = item.name || "Visible area";
@@ -433,16 +572,33 @@ function renderArchitecture(data) {
 function renderVisitMap(data) {
   const allRooms = [
     { id: "hall-overview", label: "The foyer", question: "What is it for?" },
-    { id: "hall-architecture", label: "Blueprint room", question: "How is it made?" },
-    { id: "hall-history", label: "History hall", question: "What changed?" },
-    ...(data.dependencies?.length ? [{ id: "hall-dependencies", label: "Ecosystem room", question: "What does it rely on?" }] : []),
-    { id: "hall-opera", label: "Workshop", question: "How is it alive now?" },
+    { id: "hall-journey", label: "First visitor", question: "What happens when it is used?" },
+    { id: "hall-architecture", label: "Blueprint room", question: "Which parts make it work?" },
+    { id: "hall-history", label: "History hall", question: "Why is it this way now?" },
+    ...(data.dependencies?.length ? [{ id: "hall-dependencies", label: "Ecosystem room", question: "What supports it?" }] : []),
+    { id: "hall-opera", label: "Exit workshop", question: "What should I remember?" },
   ];
   const indexButtons = [...document.querySelectorAll(".index-item")];
   indexButtons.forEach((button) => {
     const exists = allRooms.some((room) => room.id === button.dataset.target);
     button.hidden = !exists;
   });
+  allRooms.forEach((room, index) => {
+    const panel = document.getElementById(room.id);
+    const roomNumber = `${String(index + 1).padStart(2, "0")} / ${String(allRooms.length).padStart(2, "0")}`;
+    panel?.querySelector(".panel-number")?.replaceChildren(document.createTextNode(roomNumber));
+    const kicker = panel?.querySelector(".panel-heading .panel-kicker");
+    if (kicker) kicker.textContent = `Room ${roomNumber.split(" /")[0]} · ${room.label}`;
+    const indexButton = document.querySelector(`.index-item[data-target="${room.id}"]`);
+    if (indexButton) indexButton.querySelector("span:first-child")?.replaceChildren(document.createTextNode(String(index + 1).padStart(2, "0")));
+  });
+  const historyNext = document.querySelector('#hall-history .room-next');
+  if (historyNext) {
+    historyNext.dataset.next = data.dependencies?.length ? "hall-dependencies" : "hall-opera";
+    historyNext.replaceChildren(document.createTextNode(data.dependencies?.length ? "Enter the ecosystem room " : "Enter the exit workshop "), Object.assign(document.createElement("span"), { textContent: "→" }));
+  }
+  const historyFooterNote = document.querySelector('#hall-history .room-footer > span');
+  if (historyFooterNote) historyFooterNote.textContent = data.dependencies?.length ? "Next question: what else is in the room with it?" : "Last question: what should I remember?";
   const grid = el("floor-plan-grid");
   grid.replaceChildren(...allRooms.map((room, index) => {
     const button = document.createElement("button"); button.type = "button"; button.className = "map-room"; button.dataset.target = room.id;
@@ -463,11 +619,14 @@ function navigateToRoom(target) {
 }
 
 function updateVisitProgress(target) {
-  const rooms = state.rooms?.length ? state.rooms : [{ id: "hall-overview", label: "The foyer" }, { id: "hall-architecture", label: "Blueprint room" }, { id: "hall-history", label: "History hall" }, { id: "hall-dependencies", label: "Ecosystem room" }, { id: "hall-opera", label: "Workshop" }];
+  const rooms = state.rooms?.length ? state.rooms : [{ id: "hall-overview", label: "The foyer" }, { id: "hall-journey", label: "First visitor" }, { id: "hall-architecture", label: "Blueprint room" }, { id: "hall-history", label: "History hall" }, { id: "hall-dependencies", label: "Ecosystem room" }, { id: "hall-opera", label: "Exit workshop" }];
   const index = Math.max(0, rooms.findIndex((room) => room.id === target));
   el("visit-room-label").textContent = `Room ${String(index + 1).padStart(2, "0")} of ${String(rooms.length).padStart(2, "0")}`;
   el("visit-room-name").textContent = rooms[index]?.label || "The foyer";
   el("visit-progress-fill").style.width = `${((index + 1) / rooms.length) * 100}%`;
+  const visited = state.visitedRooms || new Set(["hall-overview"]);
+  visited.add(target); state.visitedRooms = visited;
+  el("visit-learning").textContent = `${visited.size} ${visited.size === 1 ? "room" : "rooms"} visited`;
   document.querySelectorAll(".index-item").forEach((item) => item.classList.toggle("is-active", item.dataset.target === target));
   document.querySelectorAll(".map-room").forEach((item) => item.classList.toggle("is-active", item.dataset.target === target));
 }
@@ -521,6 +680,7 @@ function renderScore(data) {
 function render(data) {
   state.data = data;
   state.currentRepo = data.repo;
+  state.visitedRooms = new Set(["hall-overview"]);
   el("collection-status").textContent = state.mode === "agent" ? `Agent collection · ${data.repo}` : data.repo === demoData.repo ? "Demo collection · ready to explore" : `Public collection · ${data.repo}`;
   el("project-number").textContent = data.repo === demoData.repo ? "001" : "LIVE";
   el("project-title").textContent = data.name;
@@ -534,7 +694,7 @@ function render(data) {
   el("fact-pushed").textContent = relativeDate(data.pushedAt);
   el("fact-language").textContent = data.language || "Mixed stack";
   el("fact-license").textContent = data.license || "Unspecified";
-  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderArchitecture(data); renderVisitMap(data);
+  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderHistoryTeaching(data); renderExit(data); renderVisitMap(data);
   el("score-caption").textContent = `Commit pulse / ${data.commits?.length || 0} markers`;
   el("final-summary").textContent = `You have traced ${data.name} from purpose to present-day motion. Every room is a different lens on the same public record.`;
 }
@@ -616,11 +776,24 @@ function playTone(index) {
 
 document.addEventListener("DOMContentLoaded", () => {
   render(demoData);
+  const entrance = el("entrance-screen");
+  const enterMuseum = () => {
+    state.entered = true;
+    document.body.classList.add("museum-entered");
+    window.setTimeout(() => entrance?.remove(), 900);
+    document.querySelector("#repo-input")?.focus({ preventScroll: true });
+  };
+  el("enter-museum")?.addEventListener("click", enterMuseum);
+  el("peek-museum")?.addEventListener("click", () => { document.body.classList.add("museum-preview"); entrance?.classList.add("is-peeking"); window.setTimeout(() => entrance?.remove(), 500); });
   const query = new URLSearchParams(window.location.search);
   const queryMuseum = query.get("museum");
   const queryRepo = query.get("repo");
-  if (queryMuseum) loadArtifact(queryMuseum);
-  else if (queryRepo && parseRepo(queryRepo)) { el("repo-input").value = queryRepo; loadRepo(parseRepo(queryRepo)); }
+  if (queryMuseum || (queryRepo && parseRepo(queryRepo))) {
+    // Shared links should open as working exhibits instead of leaving the entrance layer over them.
+    enterMuseum();
+    if (queryMuseum) loadArtifact(queryMuseum);
+    else { el("repo-input").value = queryRepo; loadRepo(parseRepo(queryRepo)); }
+  }
   el("repo-form").addEventListener("submit", (event) => { event.preventDefault(); const repo = parseRepo(el("repo-input").value); if (!repo) { showToast("Enter a GitHub owner/repository first."); el("repo-input").focus(); return; } loadRepo(repo); });
   el("demo-button").addEventListener("click", openDemo); el("error-demo-button").addEventListener("click", openDemo);
   el("random-button").addEventListener("click", () => { const repos = ["sindresorhus/ky", "tailwindlabs/tailwindcss", "denoland/deno", "pallets/flask", "rust-lang/rustlings"]; const repo = repos[Math.floor(Math.random() * repos.length)]; el("repo-input").value = repo; loadRepo(repo); });

@@ -7,17 +7,18 @@ It has two entrances that share one museum data contract:
 - **Public browser scan**: enter a public GitHub repository and the static site reads public API and manifest data in the browser.
 - **Local Agent curation**: run the bundled `repo-museum` skill inside a local Git repository. It reads Git history, tags, the current tree, and manifests, then writes a reviewable `.repo-museum/museum.json` artifact.
 
-It is a static, browser-first experience with a guided route through five connected rooms:
+It is a static, browser-first experience with a guided route through a connected learning exhibition:
 
 - **The foyer**: a plain-language answer to “what is this project for?” before the visitor sees code-shaped details.
-- **Blueprint room**: an Agent or browser reading of top-level folders, important files, and likely entry points.
-- **History hall**: release and commit markers arranged as a readable timeline, with a grounded origin / turning point / now arc.
+- **First visitor**: one ordinary use of the project, explained in plain language first and technical language second.
+- **Blueprint room**: an Agent or browser reading of the parts that make that use-path possible.
+- **History hall**: release and commit markers arranged as a readable timeline, with a grounded origin / turning point / now arc and a lesson for each chapter.
 - **Ecosystem room**: direct dependencies surfaced from common manifest files. It disappears when the public scan finds no specimens.
-- **Workshop**: a small Web Audio pulse shaped by the repository's recent commit rhythm.
+- **Exit workshop**: three questions that let a visitor repeat the project's story without memorising a metric list, followed by a small commit pulse.
 
-The visitor can switch between **Guided tour** and **Floor plan**. The guided route advances one question at a time; the floor plan lets an experienced visitor jump directly to a room. Claims remain linked to public GitHub evidence or the local Agent artifact.
+The visitor can switch between **Guided tour** and **Floor plan**. The guided route advances one question at a time; the floor plan lets an experienced visitor jump directly to a room. Claims remain linked to public GitHub evidence or the local Agent artifact. When a repository has no readable dependency manifest, the ecosystem room is removed from the route instead of presenting an empty exhibit.
 
-The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation` and `architecture`, so deeper history can use the same renderer without turning the public site into a backend.
+The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag.
 
 ## Run locally
 
@@ -73,6 +74,6 @@ schema/          shared museum data contract
 
 ## Product boundary
 
-The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `architecture`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. Claims are evidence-backed and uncertain interpretations must be marked as such.
+The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
 
 Built by `strawberry-little-bear`.

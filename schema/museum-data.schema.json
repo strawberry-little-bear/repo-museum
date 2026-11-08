@@ -18,8 +18,44 @@
         "oneLine": { "type": "string" },
         "use": { "type": "string" },
         "how": { "type": "string" },
+        "outcome": { "type": "string" },
+        "example": { "type": "string" },
         "guide": { "type": "string" },
         "sourceNote": { "type": "string" }
+      }
+    },
+    "journey": {
+      "type": "object",
+      "properties": {
+        "intro": { "type": "string" },
+        "summary": { "type": "string" },
+        "sourceNote": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "plain", "technical"],
+            "properties": {
+              "number": { "type": "string" },
+              "label": { "type": "string" },
+              "title": { "type": "string" },
+              "plain": { "type": "string" },
+              "technical": { "type": "string" },
+              "evidence": { "type": "string" }
+            }
+          }
+        },
+        "glossary": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["term", "plain"],
+            "properties": {
+              "term": { "type": "string" },
+              "plain": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "architecture": {
@@ -27,6 +63,19 @@
       "required": ["summary", "folders", "files", "entrypoints"],
       "properties": {
         "summary": { "type": "string" },
+        "flow": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "role", "detail"],
+            "properties": {
+              "label": { "type": "string" },
+              "role": { "type": "string" },
+              "detail": { "type": "string" },
+              "evidence": { "type": "string" }
+            }
+          }
+        },
         "folders": { "type": "array", "items": { "type": "object" } },
         "files": { "type": "array", "items": { "type": "object" } },
         "entrypoints": { "type": "array", "items": { "type": "string" } },
@@ -39,8 +88,23 @@
       "properties": {
         "headline": { "type": "string" },
         "thesis": { "type": "string" },
+        "historySummary": { "type": "string" },
+        "exit": { "type": "string" },
         "confidence": { "type": "string" },
-        "arc": { "type": "array", "minItems": 0, "items": { "type": "object" } },
+        "arc": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "title": { "type": "string" },
+              "summary": { "type": "string" },
+              "lesson": { "type": "string" },
+              "evidence": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        },
         "signals": { "type": "array", "items": { "type": "object" } }
       }
     }
