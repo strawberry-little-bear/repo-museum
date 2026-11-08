@@ -172,6 +172,7 @@ function showError(message) {
   el("loading-state").hidden = true;
   el("museum-content").hidden = true;
   el("error-state").hidden = false;
+  el("collection-status").textContent = `Collection unavailable · ${state.currentRepo}`;
   el("error-message").textContent = message;
 }
 
@@ -281,7 +282,10 @@ async function loadRepo(repo) {
     history.replaceState({}, "", `?repo=${encodeURIComponent(repo)}`);
     document.querySelector("#exhibitions").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
-    showError(error.message || "We could not read that repository.");
+    const message = error.status === 403
+      ? "GitHub is temporarily rate-limiting anonymous visitors. Try again soon, or open the demo collection while the archive cools down."
+      : error.message || "We could not read that repository.";
+    showError(message);
   }
 }
 
