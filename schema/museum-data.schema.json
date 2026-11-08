@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strawberry-little-bear.github.io/repo-museum/schema/museum-data.schema.json",
+  "title": "Repo Museum Data",
+  "type": "object",
+  "required": ["repo", "name", "events", "dependencies", "analysis"],
+  "properties": {
+    "repo": { "type": "string" },
+    "name": { "type": "string" },
+    "htmlUrl": { "type": "string" },
+    "events": { "type": "array", "items": { "type": "object" } },
+    "dependencies": { "type": "array", "items": { "type": "object" } },
+    "analysis": {
+      "type": "object",
+      "required": ["headline", "thesis", "arc"],
+      "properties": {
+        "headline": { "type": "string" },
+        "thesis": { "type": "string" },
+        "confidence": { "type": "string" },
+        "arc": { "type": "array", "minItems": 0, "items": { "type": "object" } },
+        "signals": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}

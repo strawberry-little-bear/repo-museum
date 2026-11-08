@@ -93,6 +93,7 @@
             <div class="stage-meta">
               <span class="live-dot"></span>
               <span id="collection-status">Demo collection · ready to explore</span>
+              <button class="icon-button" id="refresh-button" type="button" title="Refresh collection" aria-label="Refresh collection">↻</button>
               <button class="icon-button" id="share-button" type="button" title="Copy share link" aria-label="Copy share link">⌁</button>
             </div>
           </div>
@@ -131,7 +132,7 @@
                 <button class="index-item" data-target="hall-history"><span>02</span><span>History hall</span><span>↗</span></button>
                 <button class="index-item" data-target="hall-dependencies"><span>03</span><span>Dependency aquarium</span><span>↗</span></button>
                 <button class="index-item" data-target="hall-opera"><span>04</span><span>Commit opera</span><span>↗</span></button>
-                <div class="index-note"><span class="note-mark">✦</span><p>Every conclusion is grounded in a public source. Look for the source labels throughout the collection.</p></div>
+                <div class="index-note"><span class="note-mark">✦</span><p>Every conclusion is grounded in a public source or a local Agent reading of the repository.</p></div>
               </aside>
 
               <div class="exhibition-panels">
@@ -153,12 +154,18 @@
                       <div class="contributor-row"><span>Contributors</span><div class="avatar-stack" id="avatar-stack"></div><strong id="fact-contributors">1,200+</strong></div>
                     </div>
                   </div>
+                  <div class="curator-brief" id="curator-brief">
+                    <div class="curator-heading"><div><p class="panel-kicker">Curator's field notes</p><h5 id="analysis-headline">A project shaped by its own trail.</h5></div><span class="analysis-confidence" id="analysis-confidence">Rule-based reading</span></div>
+                    <p class="curator-thesis" id="analysis-thesis">The archive is still being read.</p>
+                    <div class="story-arc" id="story-arc"></div>
+                    <div class="analysis-signals" id="analysis-signals"></div>
+                  </div>
                 </section>
 
                 <section class="panel history-panel" id="hall-history">
                   <div class="panel-heading"><div><p class="panel-kicker">History hall</p><h4>A timeline of becoming</h4></div><span class="panel-number">02 / 04</span></div>
                   <div class="timeline" id="timeline"></div>
-                  <div class="panel-footer"><span class="source-chip">↗ GitHub commits</span><span id="history-note">Showing the latest public markers in this collection</span></div>
+                  <div class="panel-footer"><a class="source-chip" id="history-source" href="https://github.com/vitejs/vite/commits/main" target="_blank" rel="noreferrer">↗ GitHub commits</a><span id="history-note">Showing the latest public markers in this collection</span></div>
                 </section>
 
                 <section class="panel aquarium-panel" id="hall-dependencies">
@@ -166,7 +173,7 @@
                   <div class="aquarium-intro"><p>Dependencies are not clutter. They are the living context a project grows inside.</p><span id="dependency-count">0 specimens observed</span></div>
                   <div class="aquarium-stage" id="aquarium-stage"></div>
                   <div class="dependency-list" id="dependency-list"></div>
-                  <div class="panel-footer"><span class="source-chip">↗ Manifest files</span><span>Direct dependencies only in this first survey</span></div>
+                  <div class="panel-footer"><a class="source-chip" id="dependency-source" href="https://github.com/vitejs/vite/blob/main/package.json" target="_blank" rel="noreferrer">↗ Manifest files</a><span>Direct dependencies only in this first survey</span></div>
                 </section>
 
                 <section class="panel opera-panel" id="hall-opera">
