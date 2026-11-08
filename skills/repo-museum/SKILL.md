@@ -19,7 +19,7 @@ Use this skill when the user asks to:
 ## Workflow
 
 1. Confirm the working directory is a Git repository. Do not inspect files outside it unless the user explicitly asks.
-2. Read the repository's `README`, manifest files, top-level tree, recent and early commits, tags, and available commit statistics.
+2. Read the repository's tracked `README`, manifest files, top-level tree, recent and early commits, tags, and available commit statistics. Use the README and tree to orient a non-technical visitor before describing architecture.
 3. Run the bundled collector from the repository root:
 
    ```bash
@@ -39,6 +39,8 @@ The artifact follows `schema/museum-data.schema.json` and is compatible with the
 - `project`: repository identity and observed metadata;
 - `events`: dated commits, tags, and releases with evidence links;
 - `dependencies`: direct dependencies with manifest paths;
+- `orientation`: a plain-language “what is it / what is it for / how should I read it” guide, grounded in the README and description;
+- `architecture`: top-level folders, important files, entry points, and a short explanation of their observable roles;
 - `analysis`: the Agent's evidence-backed thesis, signals, and three-part arc;
 - `sources`: every important claim's commit, tag, file, or command source.
 

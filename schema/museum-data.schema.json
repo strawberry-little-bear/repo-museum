@@ -3,13 +3,36 @@
   "$id": "https://strawberry-little-bear.github.io/repo-museum/schema/museum-data.schema.json",
   "title": "Repo Museum Data",
   "type": "object",
-  "required": ["repo", "name", "events", "dependencies", "analysis"],
+  "required": ["repo", "name", "events", "dependencies", "analysis", "orientation", "architecture"],
   "properties": {
     "repo": { "type": "string" },
     "name": { "type": "string" },
     "htmlUrl": { "type": "string" },
     "events": { "type": "array", "items": { "type": "object" } },
     "dependencies": { "type": "array", "items": { "type": "object" } },
+    "orientation": {
+      "type": "object",
+      "required": ["what", "oneLine", "use", "how"],
+      "properties": {
+        "what": { "type": "string" },
+        "oneLine": { "type": "string" },
+        "use": { "type": "string" },
+        "how": { "type": "string" },
+        "guide": { "type": "string" },
+        "sourceNote": { "type": "string" }
+      }
+    },
+    "architecture": {
+      "type": "object",
+      "required": ["summary", "folders", "files", "entrypoints"],
+      "properties": {
+        "summary": { "type": "string" },
+        "folders": { "type": "array", "items": { "type": "object" } },
+        "files": { "type": "array", "items": { "type": "object" } },
+        "entrypoints": { "type": "array", "items": { "type": "string" } },
+        "sourceNote": { "type": "string" }
+      }
+    },
     "analysis": {
       "type": "object",
       "required": ["headline", "thesis", "arc"],

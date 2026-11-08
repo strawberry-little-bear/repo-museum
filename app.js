@@ -7,6 +7,29 @@ const demoData = {
   htmlUrl: "https://github.com/vitejs/vite",
   defaultBranch: "main",
   manifestPath: "package.json",
+  orientation: {
+    what: "Vite is a build tool and local development server for modern web projects.",
+    oneLine: "A fast workshop for turning source files into a running web app.",
+    use: "Develop, bundle, and preview frontend applications.",
+    how: "Read the source tree first, then follow the package scripts and recent releases.",
+    guide: "The public description and README are the starting evidence for this orientation.",
+    sourceNote: "Based on the repository description and README scan.",
+  },
+  architecture: {
+    summary: "A multi-package JavaScript workspace organized around the build tool, its plugins, and tests.",
+    folders: [
+      { name: "packages", role: "Where the main product modules live", evidence: "packages" },
+      { name: "playground", role: "Small projects used to exercise behavior", evidence: "playground" },
+      { name: "docs", role: "Public explanations and project guidance", evidence: "docs" },
+    ],
+    files: [
+      { name: "package.json", role: "Project scripts, workspace rules, and dependencies", evidence: "package.json" },
+      { name: "pnpm-workspace.yaml", role: "Defines the package boundaries", evidence: "pnpm-workspace.yaml" },
+      { name: "vitest.config.ts", role: "Test runner configuration", evidence: "vitest.config.ts" },
+    ],
+    entrypoints: ["package.json", "packages/", "docs/"],
+    sourceNote: "Demo architecture is a representative reading of the public repository tree.",
+  },
   createdAt: "2020-05-13T00:00:00Z",
   pushedAt: "2025-03-18T00:00:00Z",
   language: "JavaScript",
@@ -143,6 +166,79 @@ function parseDependencies(contents, path) {
   }).filter(Boolean);
 }
 
+function decodeBase64(value) {
+  if (!value) return "";
+  try {
+    const binary = atob(value.replace(/\n/g, ""));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
+function plainText(markdown) {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]+`/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[[^\]]+\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/[>*_~-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferRole(name, isFolder = false) {
+  const lower = name.toLowerCase();
+  if (isFolder) {
+    if (/^(src|lib|app|packages?)$/.test(lower)) return "Where the main implementation lives";
+    if (/^(test|tests|spec|__tests__|e2e)$/.test(lower)) return "Where behavior is checked";
+    if (/^(docs?|website|site)$/.test(lower)) return "Where people learn how to use it";
+    if (/^(examples?|playground|demo)$/.test(lower)) return "Small spaces for trying the project";
+    if (/^(scripts?|tools?|bin)$/.test(lower)) return "Small utilities that support the workflow";
+    if (/^(config|configs?)$/.test(lower)) return "Project-wide configuration";
+    return "A visible area of the repository";
+  }
+  if (lower === "readme.md") return "The project's public introduction";
+  if (/^(package\.json|pyproject\.toml|cargo\.toml|go\.mod)$/.test(lower)) return "Project instructions and dependencies";
+  if (/^(pnpm|yarn|npm|package-lock|cargo|poetry|uv).*\.(ya?ml|json|lock)$/.test(lower)) return "Dependency and workspace rules";
+  if (/\.(test|spec)\./.test(lower) || /(^|[._-])(test|spec)s?\./.test(lower)) return "A check for expected behavior";
+  if (/^(vite|vitest|jest|eslint|tsconfig|webpack|rollup|tailwind|prettier)/.test(lower)) return "A configuration point for the toolchain";
+  return "A visible file in the current project tree";
+}
+
+function buildOrientation(repository, readmeText, manifestMeta = {}) {
+  const source = plainText(readmeText);
+  const firstSentence = source.match(/[^.!?]{20,180}[.!?]/)?.[0]?.trim();
+  const description = repository.description || manifestMeta.description || firstSentence || "This public repository is still being read.";
+  const what = firstSentence || description;
+  const language = repository.language || "mixed technology";
+  return {
+    what: `${what} The visible stack is ${language}.`,
+    oneLine: description,
+    use: source ? source.slice(0, 180) : `Explore the repository's ${language} code and public history.`,
+    how: source ? "Read the introduction, then move through the tree and history to see how the project is assembled." : "Start with the visible tree, then use commits and manifests to understand how it is assembled.",
+    guide: source ? "The orientation begins with the repository description and its README, then points to structure and history." : "The orientation is a rule-based reading of public repository metadata.",
+    sourceNote: source ? "Based on the public description and README." : "Based on the public repository description; README text was not available.",
+  };
+}
+
+function buildArchitecture(tree = [], manifestPath, readmeText, repository) {
+  const folders = [...new Set(tree.filter((item) => item.includes("/")).map((item) => item.split("/")[0]))].slice(0, 8).map((name) => ({ name, role: inferRole(name, true), evidence: name }));
+  const files = tree.filter((item) => !item.includes("/")).filter((item) => /readme|package|pyproject|requirements|cargo|go\.mod|workspace|config|lock|test|spec/i.test(item)).slice(0, 8).map((name) => ({ name, role: inferRole(name), evidence: name }));
+  if (manifestPath && !files.some((file) => file.name === manifestPath)) files.unshift({ name: manifestPath, role: inferRole(manifestPath), evidence: manifestPath });
+  const entrypoints = files.filter((file) => /readme|package|pyproject|cargo|go\.mod/i.test(file.name)).slice(0, 3).map((file) => file.name);
+  if (!folders.length && !files.length) return demoData.architecture;
+  return {
+    summary: `${repository.language || "Mixed stack"} project with ${folders.length || "a visible"} top-level area${folders.length === 1 ? "" : "s"} and ${files.length || "a small set of"} notable project file${files.length === 1 ? "" : "s"}.`,
+    folders,
+    files,
+    entrypoints: entrypoints.length ? entrypoints : (readmeText ? ["README.md"] : []),
+    sourceNote: "Roles are inferred from names in the public top-level tree; open the evidence to inspect the source.",
+  };
+}
+
 function commitToEvent(commit, index, total) {
   const message = commit.commit?.message?.split("\n")[0] || "A new mark in the archive";
   return { date: formatDate(commit.commit?.author?.date), title: message.slice(0, 58), meta: `${commit.commit?.author?.name || commit.author?.login || "Unknown author"} · public commit`, sha: shortenSha(commit.sha), kind: index === total - 1 ? "origin" : "commit", url: commit.html_url || `https://github.com/${commit.committer?.login || ""}` };
@@ -171,7 +267,7 @@ function buildBrowserAnalysis(data) {
   };
 }
 
-function buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath) {
+function buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath, readmeText = "", tree = []) {
   const repoName = `${repository.owner.login} / ${repository.name}`;
   const releaseEvents = releases.slice(0, 3).map((release) => ({ date: formatDate(release.published_at || release.created_at), title: `Release ${release.tag_name}`, meta: `${release.name || "A new public release"} · ${release.author?.login || "maintainers"}`, sha: release.tag_name, kind: "release", url: release.html_url }));
   const commitEvents = commits.slice(0, 5).map((commit, index) => commitToEvent(commit, index, commits.length));
@@ -182,6 +278,8 @@ function buildLiveData(repo, repository, commits, releases, contributors, langua
     repo, name: repoName, description: repository.description || "A public repository with a story still being written.", htmlUrl: repository.html_url, defaultBranch: repository.default_branch || "main",
     createdAt: repository.created_at, pushedAt: repository.pushed_at, language, license: repository.license?.spdx_id || "Unspecified",
     stars: repository.stargazers_count, forks: repository.forks_count, issues: repository.open_issues_count, contributors,
+    orientation: buildOrientation(repository, readmeText),
+    architecture: buildArchitecture(tree, manifestPath, readmeText, repository),
     events: events.slice(0, 6), dependencies, manifestPath, commits: commits.slice(0, 12).map((commit, index) => ({ sha: shortenSha(commit.sha), date: formatDate(commit.commit?.author?.date, false), score: 22 + ((commit.sha.charCodeAt(0) * 7 + index * 23) % 78) })),
   };
   data.analysis = buildBrowserAnalysis(data);
@@ -189,12 +287,14 @@ function buildLiveData(repo, repository, commits, releases, contributors, langua
 }
 
 async function fetchMuseumData(repo) {
-  const [repository, commits, releases, contributors, languages] = await Promise.all([
+  const [repository, commits, releases, contributors, languages, readmeResponse, tree] = await Promise.all([
     githubFetch(`/repos/${repo}`),
     githubFetch(`/repos/${repo}/commits?per_page=12`),
     githubFetch(`/repos/${repo}/releases?per_page=5`),
     githubFetch(`/repos/${repo}/contributors?per_page=6`),
     githubFetch(`/repos/${repo}/languages`),
+    githubFetch(`/repos/${repo}/readme`).catch(() => null),
+    githubFetch(`/repos/${repo}/contents/`).catch(() => []),
   ]);
   const manifests = ["package.json", "pyproject.toml", "requirements.txt", "Cargo.toml"];
   let dependencies = [];
@@ -204,7 +304,9 @@ async function fetchMuseumData(repo) {
     dependencies = parseDependencies(contents, manifest);
     if (dependencies.length) { manifestPath = manifest; break; }
   }
-  return buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath);
+  const readmeText = decodeBase64(readmeResponse?.content);
+  const treeItems = Array.isArray(tree) ? tree.map((item) => item.type === "dir" ? `${item.name}/.directory` : item.name).filter(Boolean) : [];
+  return buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath, readmeText, treeItems);
 }
 
 function setLoading(isLoading) {
@@ -293,6 +395,83 @@ function renderAnalysis(data) {
   }));
 }
 
+function renderOrientation(data) {
+  const orientation = data.orientation || buildOrientation({ description: data.description, language: data.language }, "");
+  el("orientation-one-line").textContent = orientation.oneLine || orientation.what || "A project with a story still being written.";
+  el("orientation-what").textContent = orientation.what || data.description || "The public record is still being read.";
+  el("orientation-use").textContent = orientation.use || "Explore the visible repository record.";
+  el("orientation-how").textContent = orientation.how || "Start with the tree, then follow the history.";
+}
+
+function renderArchitecture(data) {
+  const architecture = data.architecture || demoData.architecture;
+  el("architecture-summary").textContent = architecture.summary || "The project's visible structure is the first blueprint.";
+  el("architecture-source-note").textContent = architecture.sourceNote || "Roles are inferred from visible repository evidence.";
+  el("architecture-source").href = `${data.htmlUrl || "#"}/tree/${data.defaultBranch || "main"}`;
+  const renderList = (target, items, emptyLabel) => {
+    const container = el(target);
+    container.replaceChildren(...(items || []).slice(0, 8).map((item) => {
+      const row = document.createElement("a"); row.className = "architecture-item";
+      const evidence = item.evidence || item.name || "";
+      const isFile = !evidence.includes("/") && (/\.[a-z0-9]+$/i.test(evidence) || /^readme$/i.test(evidence));
+      row.href = `${data.htmlUrl || "#"}/${isFile ? "blob" : "tree"}/${data.defaultBranch || "main"}/${evidence}`;
+      row.target = "_blank"; row.rel = "noreferrer";
+      const name = document.createElement("strong"); name.textContent = item.name || "Visible area";
+      const role = document.createElement("span"); role.textContent = item.role || "Evidence-backed role reading";
+      row.append(name, role); return row;
+    }));
+    if (!container.children.length) container.append(Object.assign(document.createElement("p"), { className: "empty-note", textContent: emptyLabel }));
+  };
+  renderList("architecture-folders", architecture.folders, "No top-level folders surfaced in this scan.");
+  renderList("architecture-files", architecture.files, "No named project files surfaced in this scan.");
+  const entrypoints = el("architecture-entrypoints");
+  entrypoints.replaceChildren(...(architecture.entrypoints || []).slice(0, 4).map((entry) => {
+    const link = document.createElement("a"); link.href = `${data.htmlUrl || "#"}/tree/${data.defaultBranch || "main"}/${entry}`; link.target = "_blank"; link.rel = "noreferrer"; link.textContent = `${entry} ↗`; return link;
+  }));
+}
+
+function renderVisitMap(data) {
+  const allRooms = [
+    { id: "hall-overview", label: "The foyer", question: "What is it for?" },
+    { id: "hall-architecture", label: "Blueprint room", question: "How is it made?" },
+    { id: "hall-history", label: "History hall", question: "What changed?" },
+    ...(data.dependencies?.length ? [{ id: "hall-dependencies", label: "Ecosystem room", question: "What does it rely on?" }] : []),
+    { id: "hall-opera", label: "Workshop", question: "How is it alive now?" },
+  ];
+  const indexButtons = [...document.querySelectorAll(".index-item")];
+  indexButtons.forEach((button) => {
+    const exists = allRooms.some((room) => room.id === button.dataset.target);
+    button.hidden = !exists;
+  });
+  const grid = el("floor-plan-grid");
+  grid.replaceChildren(...allRooms.map((room, index) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "map-room"; button.dataset.target = room.id;
+    const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
+    const label = document.createElement("strong"); label.textContent = room.label;
+    const question = document.createElement("small"); question.textContent = room.question;
+    button.append(number, label, question); button.addEventListener("click", () => navigateToRoom(room.id)); return button;
+  }));
+  state.rooms = allRooms;
+  updateVisitProgress("hall-overview");
+}
+
+function navigateToRoom(target) {
+  const panel = document.getElementById(target);
+  if (!panel || panel.hidden) return;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  updateVisitProgress(target);
+}
+
+function updateVisitProgress(target) {
+  const rooms = state.rooms?.length ? state.rooms : [{ id: "hall-overview", label: "The foyer" }, { id: "hall-architecture", label: "Blueprint room" }, { id: "hall-history", label: "History hall" }, { id: "hall-dependencies", label: "Ecosystem room" }, { id: "hall-opera", label: "Workshop" }];
+  const index = Math.max(0, rooms.findIndex((room) => room.id === target));
+  el("visit-room-label").textContent = `Room ${String(index + 1).padStart(2, "0")} of ${String(rooms.length).padStart(2, "0")}`;
+  el("visit-room-name").textContent = rooms[index]?.label || "The foyer";
+  el("visit-progress-fill").style.width = `${((index + 1) / rooms.length) * 100}%`;
+  document.querySelectorAll(".index-item").forEach((item) => item.classList.toggle("is-active", item.dataset.target === target));
+  document.querySelectorAll(".map-room").forEach((item) => item.classList.toggle("is-active", item.dataset.target === target));
+}
+
 function renderAquarium(data) {
   const stage = el("aquarium-stage");
   const list = el("dependency-list");
@@ -355,7 +534,9 @@ function render(data) {
   el("fact-pushed").textContent = relativeDate(data.pushedAt);
   el("fact-language").textContent = data.language || "Mixed stack";
   el("fact-license").textContent = data.license || "Unspecified";
-  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data);
+  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderArchitecture(data); renderVisitMap(data);
+  el("score-caption").textContent = `Commit pulse / ${data.commits?.length || 0} markers`;
+  el("final-summary").textContent = `You have traced ${data.name} from purpose to present-day motion. Every room is a different lens on the same public record.`;
 }
 
 async function fetchMuseumArtifact(path) {
@@ -443,7 +624,14 @@ document.addEventListener("DOMContentLoaded", () => {
   el("repo-form").addEventListener("submit", (event) => { event.preventDefault(); const repo = parseRepo(el("repo-input").value); if (!repo) { showToast("Enter a GitHub owner/repository first."); el("repo-input").focus(); return; } loadRepo(repo); });
   el("demo-button").addEventListener("click", openDemo); el("error-demo-button").addEventListener("click", openDemo);
   el("random-button").addEventListener("click", () => { const repos = ["sindresorhus/ky", "tailwindlabs/tailwindcss", "denoland/deno", "pallets/flask", "rust-lang/rustlings"]; const repo = repos[Math.floor(Math.random() * repos.length)]; el("repo-input").value = repo; loadRepo(repo); });
-  document.querySelectorAll(".index-item").forEach((button) => button.addEventListener("click", () => { document.getElementById(button.dataset.target).scrollIntoView({ behavior: "smooth", block: "start" }); document.querySelectorAll(".index-item").forEach((item) => item.classList.remove("is-active")); button.classList.add("is-active"); }));
+  document.querySelectorAll(".index-item").forEach((button) => button.addEventListener("click", () => navigateToRoom(button.dataset.target)));
+  document.querySelectorAll(".room-next, .room-back").forEach((button) => button.addEventListener("click", () => navigateToRoom(button.dataset.next)));
+  document.querySelectorAll(".mode-button").forEach((button) => button.addEventListener("click", () => {
+    const mode = button.dataset.mode;
+    document.querySelectorAll(".mode-button").forEach((item) => item.classList.toggle("is-active", item === button));
+    el("floor-plan").hidden = mode !== "map";
+    if (mode === "map") el("floor-plan").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }));
   el("refresh-button").addEventListener("click", () => {
     if (state.mode === "agent" && state.artifactPath) { loadArtifact(state.artifactPath); return; }
     if (state.currentRepo === demoData.repo) { render(demoData); showToast("Demo collection refreshed."); return; }
@@ -456,7 +644,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const panels = [...document.querySelectorAll(".exhibition-panels .panel")];
   const updateActiveIndex = (entries) => entries.forEach((entry) => { if (!entry.isIntersecting) return; const active = document.querySelector(`.index-item[data-target="${entry.target.id}"]`); document.querySelectorAll(".index-item").forEach((item) => item.classList.toggle("is-active", item === active)); });
-  if ("IntersectionObserver" in window) { const observer = new IntersectionObserver(updateActiveIndex, { rootMargin: "-24% 0px -62% 0px", threshold: 0 }); panels.forEach((panel) => observer.observe(panel)); }
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => { if (entry.isIntersecting) updateVisitProgress(entry.target.id); });
+      updateActiveIndex(entries);
+    }, { rootMargin: "-24% 0px -62% 0px", threshold: 0 });
+    panels.forEach((panel) => observer.observe(panel));
+  }
 
   const visual = document.querySelector(".hero-visual");
   visual.addEventListener("pointermove", (event) => { const rect = visual.getBoundingClientRect(); visual.style.setProperty("--tilt-x", `${((event.clientX - rect.left) / rect.width - 0.5) * 12}px`); visual.style.setProperty("--tilt-y", `${((event.clientY - rect.top) / rect.height - 0.5) * 12}px`); });
