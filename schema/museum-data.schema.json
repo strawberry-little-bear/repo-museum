@@ -24,6 +24,11 @@
               "id": { "type": "string" },
               "label": { "type": "string" },
               "question": { "type": "string" },
+              "scene": { "type": "string" },
+              "plain": { "type": "string" },
+              "reveal": { "type": "string" },
+              "whyItMatters": { "type": "string" },
+              "interaction": { "type": "string" },
               "takeaway": { "type": "string" },
               "mode": { "enum": ["observed", "inferred", "mixed"] },
               "evidence": { "type": "array", "items": { "type": "object" } }

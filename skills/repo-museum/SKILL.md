@@ -40,7 +40,7 @@ The artifact follows `schema/museum-data.schema.json` and is compatible with the
 - `events`: dated commits, tags, and releases with evidence links;
 - `dependencies`: direct dependencies with manifest paths;
 - `orientation`: a plain-language “what is it / what is it for / how should I read it” guide, grounded in the README and description;
-- `learning`: the visitor contract for the exhibition: the promise of the visit and one question, takeaway, evidence list, and confidence mode for each room;
+- `learning`: the visitor contract for the exhibition: the promise of the visit and one question, plain-language scene, technical reveal, takeaway, evidence list, interaction hint, and confidence mode for each room;
 - `journey`: a conservative, ordinary-language path from a person or caller to a result, with a technical translation and evidence reference for each step;
 - `architecture`: top-level folders, important files, entry points, a `flow` that maps the journey to visible repository areas, and a short explanation of their observable roles;
 - `analysis`: the Agent's evidence-backed thesis, signals, a three-part arc, a history teaching summary, and an exit prompt;
@@ -56,7 +56,7 @@ Prefer concrete language such as “the repository added a Rust workspace after�
 
 The `journey` is a teaching model, not a claim that the collector has executed the project. When runtime behavior is not directly observable from tracked files, say that the path is inferred and link to the README, manifest, tree area, or test/example evidence that motivated it.
 
-The `learning.rooms` contract is part of the teaching experience, not decorative metadata. Every room should answer one question and end with a concise takeaway. Use `mode: observed` for facts directly visible in files or history, `mode: inferred` for a conservative teaching model, and `mode: mixed` when the room combines both. Evidence entries must point to a file, commit, tag, release, or other public source that lets a visitor inspect the claim.
+The `learning.rooms` contract is part of the teaching experience, not decorative metadata. Every room should answer one question and end with a concise takeaway. Use `scene` for the ordinary-language situation, `plain` for the first explanation, `reveal` for the technical reading, `whyItMatters` for the visitor's reason to remember it, and `interaction` for the renderer's small activity hint. Use `mode: observed` for facts directly visible in files or history, `mode: inferred` for a conservative teaching model, and `mode: mixed` when the room combines both. Evidence entries must point to a file, commit, tag, release, or other public source that lets a visitor inspect the claim.
 
 ## Safety and privacy
 

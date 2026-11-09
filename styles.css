@@ -206,6 +206,24 @@ h1 em, h2 em { color: var(--coral); font-style: normal; }
 .learned-item > span { color: var(--coral-dark); font-family: var(--mono); font-size: 10px; }
 .learned-item strong { display: block; margin: 27px 0 9px; font-family: var(--display); font-size: 17px; }
 .learned-item p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.exit-quiz { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.exit-quiz-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.exit-quiz-heading h5 { margin: 7px 0 0; font-family: var(--display); font-size: clamp(23px, 3vw, 31px); line-height: 1; letter-spacing: -.045em; }
+.quiz-score { flex: 0 0 auto; color: var(--coral-dark); font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.quiz-note { max-width: 620px; margin: 12px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.quiz-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.quiz-card { min-width: 0; padding: 16px; border: 1px solid var(--line); background: rgba(255, 253, 249, .58); transition: border-color 180ms ease, background 180ms ease, transform 180ms ease; }
+.quiz-card.is-correct { border-color: var(--coral-dark); background: rgba(187, 217, 204, .5); }
+.quiz-card.is-review { border-color: var(--mustard); }
+.quiz-number { color: var(--coral-dark); font-family: var(--mono); font-size: 10px; }
+.quiz-card h6 { min-height: 42px; margin: 19px 0 14px; font-family: var(--display); font-size: 16px; line-height: 1.05; letter-spacing: -.03em; }
+.quiz-options { display: grid; gap: 7px; }
+.quiz-option { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; min-height: 44px; padding: 9px 10px; border: 1px solid var(--line); color: var(--ink); background: transparent; text-align: left; font-size: 11px; line-height: 1.35; transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
+.quiz-option:hover, .quiz-option.is-selected { border-color: var(--ink); background: var(--white); transform: translateX(2px); }
+.quiz-option.is-answer { border-color: var(--coral-dark); }
+.quiz-option-marker { color: var(--coral-dark); font-family: var(--mono); font-size: 10px; }
+.quiz-feedback { min-height: 34px; margin: 13px 0 0; color: var(--muted); font-family: var(--mono); font-size: 9px; line-height: 1.45; }
+.quiz-card.is-correct .quiz-feedback { color: var(--coral-dark); }
 
 @media (max-width: 900px) {
   .journey-flow, .machine-map { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -427,4 +445,63 @@ body.has-scrolled .topbar {
   .floor-plan-note { margin-bottom: 14px; }
   .map-room p { min-height: 0; }
   .journey-closer summary { min-height: 28px; }
+}
+
+/* Guided tour: the current room is a place, while the floor plan is the archive map. */
+.exhibition-panels.guided-mode .panel:not(.is-current) { display: none; }
+.exhibition-panels.guided-mode .panel.is-current { animation: room-arrival 420ms ease both; }
+.exhibition-panels.map-mode .panel { display: block; }
+.exhibition-panels.map-mode .panel.is-current { animation: none; }
+@keyframes room-arrival {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.exhibition-panels.guided-mode .panel { min-height: 680px; }
+.exhibition-panels.guided-mode .room-footer { margin-top: 48px; }
+.exhibition-panels.guided-mode .room-footer .room-next { color: var(--coral-dark); }
+.exhibition-panels.guided-mode .panel-heading h4 { max-width: 630px; font-size: clamp(31px, 4vw, 52px); }
+.room-guide { display: grid; gap: 11px; margin: 24px 0 24px; padding: 21px 22px 22px; border: 1px solid var(--ink); border-left: 5px solid var(--coral); background: var(--white); box-shadow: 5px 5px 0 rgba(29, 45, 49, 0.1); }
+.room-guide-meta { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--coral-dark); font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.room-guide-meta span:last-child { color: var(--muted); }
+.room-guide-scene { max-width: 710px; margin: 5px 0 0; color: var(--ink); font-family: var(--display); font-size: clamp(22px, 3vw, 34px); line-height: 1.03; letter-spacing: -.045em; }
+.room-guide-plain { max-width: 700px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.room-guide-details { border-top: 1px solid var(--line); padding-top: 12px; }
+.room-guide-details summary { color: var(--coral-dark); cursor: pointer; font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; list-style: none; }
+.room-guide-details summary::-webkit-details-marker { display: none; }
+.room-guide-details summary::before { content: "+"; display: inline-block; width: 16px; color: var(--ink); }
+.room-guide-details[open] summary::before { content: "−"; }
+.room-guide-details p { max-width: 680px; margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.foyer-reveal { margin: 0 0 27px; padding: 17px 18px 18px; border: 1px solid var(--line); background: rgba(255, 253, 249, .66); }
+.foyer-reveal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.foyer-reveal-head .subsection-label { margin-bottom: 6px; }
+.foyer-reveal-head strong { font-family: var(--display); font-size: 18px; letter-spacing: -.03em; }
+.foyer-reveal > p { max-width: 700px; margin: 15px 0 0; color: var(--muted); line-height: 1.6; }
+.segmented-control { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); }
+.segment-button { min-height: 29px; padding: 0 10px; color: var(--muted); background: transparent; font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+.segment-button + .segment-button { border-left: 1px solid var(--line); }
+.segment-button.is-active { color: var(--white); background: var(--ink); }
+.architecture-spotlight, .dependency-spotlight { display: grid; gap: 8px; margin: -9px 0 25px; padding: 16px 18px; border-left: 4px solid var(--mustard); background: rgba(230, 185, 79, .12); }
+.architecture-spotlight .subsection-label, .dependency-spotlight .subsection-label { margin-bottom: 0; }
+.architecture-spotlight strong, .dependency-spotlight strong { font-family: var(--display); font-size: 20px; letter-spacing: -.03em; }
+.architecture-spotlight p:not(.subsection-label), .dependency-spotlight p:not(.subsection-label) { max-width: 720px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.architecture-spotlight a, .dependency-spotlight a { color: var(--coral-dark); font-family: var(--mono); font-size: 9px; }
+.machine-node, .journey-step { appearance: none; width: 100%; color: inherit; text-align: left; cursor: pointer; }
+.journey-step:focus-visible, .machine-node:focus-visible, .history-chapter:focus-visible, .aquarium-node:focus-visible, .quiz-option:focus-visible { outline: 2px solid var(--coral); outline-offset: -2px; }
+.machine-node.is-selected, .machine-node[aria-pressed="true"] { z-index: 2; background: var(--mustard); transform: translateY(-4px); box-shadow: 4px 5px 0 rgba(29, 45, 49, .16); }
+.journey-step.is-selected, .journey-step[aria-pressed="true"] { background: var(--white); box-shadow: inset 0 0 0 2px var(--coral); }
+.journey-step .journey-evidence { position: relative; z-index: 2; }
+.history-chapter { appearance: none; width: 100%; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.history-chapter.is-selected, .history-chapter[aria-pressed="true"] { background: rgba(255, 253, 249, .64); box-shadow: inset 0 3px 0 var(--coral); }
+.history-chapter:hover { background: rgba(255, 253, 249, .64); }
+.aquarium-node { appearance: none; cursor: pointer; color: inherit; text-align: left; }
+.aquarium-node.is-selected, .aquarium-node[aria-pressed="true"] { z-index: 3; background: var(--mustard); transform: scale(1.05); box-shadow: 3px 4px 0 rgba(29, 45, 49, .2); }
+.exit-intro { position: relative; }
+
+@media (max-width: 720px) {
+  .exhibition-panels.guided-mode .panel { min-height: 0; }
+  .foyer-reveal-head { align-items: flex-start; flex-direction: column; }
+  .segmented-control { width: 100%; }
+  .segment-button { flex: 1; }
+  .exit-quiz-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .quiz-list { grid-template-columns: 1fr; }
 }
