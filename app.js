@@ -666,7 +666,7 @@ function roomDiscoveryFallback(data, room) {
   if (room.id === "hall-dependencies") {
     const dependency = data.dependencies?.[0];
     return dependency
-      ? `${data.manifestPath || "The manifest"} declares ${dependency.name}${dependency.version ? ` ${dependency.version}` : ""}; it supplies ${dependencyCapability(dependency.name, dependency.type).replace(/\.$/, "").toLowerCase()}.`
+      ? `${data.manifestPath || "The manifest"} declares ${dependency.name}${dependency.version ? ` ${dependency.version}` : ""}; it ${dependencyCapability(dependency.name, dependency.type).replace(/\.$/, "").toLowerCase()}.`
       : "No readable direct dependency was exposed, so this room is omitted rather than staged empty.";
   }
   if (room.id === "hall-opera") {
@@ -1008,7 +1008,7 @@ async function fetchMuseumData(repo) {
     githubFetch(`/repos/${repo}/contributors?per_page=6`),
     githubFetch(`/repos/${repo}/languages`),
     githubFetch(`/repos/${repo}/readme`).catch(() => null),
-    githubFetch(`/repos/${repo}/contents/`).catch(() => []),
+    githubFetch(`/repos/${repo}/contents/`).catch(() => null),
   ]);
   const latestCommits = Array.isArray(commitPage.data) ? commitPage.data : [];
   const lastPage = lastPageFromLink(commitPage.link);
@@ -1031,7 +1031,11 @@ async function fetchMuseumData(repo) {
     seen.add(commit.sha);
     return true;
   }).sort((a, b) => commitDateValue(b).localeCompare(commitDateValue(a)));
-  const manifests = ["package.json", "pyproject.toml", "requirements.txt", "Cargo.toml"];
+  const manifestCandidates = ["package.json", "pyproject.toml", "requirements.txt", "Cargo.toml", "go.mod"];
+  const visibleRootFiles = new Set(Array.isArray(tree) ? tree.map((item) => item?.name).filter(Boolean) : []);
+  const manifests = Array.isArray(tree)
+    ? manifestCandidates.filter((manifest) => visibleRootFiles.has(manifest))
+    : manifestCandidates;
   let dependencies = [];
   let manifestPath = null;
   for (const manifest of manifests) {
