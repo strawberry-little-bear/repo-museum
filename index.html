@@ -127,7 +127,13 @@
           <div id="museum-content">
             <div class="visit-bar" aria-label="Visit controls">
               <div class="visit-progress"><span class="visit-room-label" id="visit-room-label">Room 01 of 06</span><div class="visit-progress-track"><span id="visit-progress-fill"></span></div><span id="visit-room-name">The foyer</span><small id="visit-learning">0 / 6 rooms understood</small></div>
-              <div class="visit-modes" role="group" aria-label="View mode"><button type="button" class="mode-button is-active" data-mode="guided">Guided tour</button><button type="button" class="mode-button" data-mode="map">Floor plan</button></div>
+              <div class="visit-actions">
+                <div class="visit-modes" role="group" aria-label="View mode"><button type="button" class="mode-button is-active" data-mode="guided">Guided tour</button><button type="button" class="mode-button" data-mode="map">Floor plan</button></div>
+                <nav class="space-nav" aria-label="Room navigation">
+                  <button type="button" id="previous-room" aria-label="Open previous room"><span aria-hidden="true">←</span><span>Prev</span></button>
+                  <button type="button" id="next-room" aria-label="Open next room"><span>Next</span><span aria-hidden="true">→</span></button>
+                </nav>
+              </div>
             </div>
             <div class="floor-plan" id="floor-plan" hidden>
               <p class="floor-plan-title">Learning map</p>
@@ -220,6 +226,7 @@
                   <div class="panel-heading"><div><p class="panel-kicker">Room 04 · History hall</p><h4>How did the project become this version?</h4></div><span class="panel-number">04 / 06</span></div>
                   <div class="room-lede"><p id="history-summary">The history is not a list of dates. It is a sequence of decisions that changed what the project could do.</p></div>
                   <div class="history-arc" id="history-arc"></div>
+                  <div class="history-phase-detail" id="history-phase-detail" aria-live="polite"></div>
                   <div class="timeline" id="timeline"></div>
                   <div class="panel-footer"><a class="source-chip" id="history-source" href="https://github.com/vitejs/vite/commits/main" target="_blank" rel="noreferrer">↗ GitHub commits</a><span id="history-note">Showing the latest public markers in this collection</span></div>
                   <div class="room-footer"><button type="button" class="room-back" data-next="hall-architecture">← Back to the blueprint</button><span>Next question: what else is in the room with it?</span><button type="button" class="room-next" data-next="hall-dependencies">Enter the ecosystem room <span>→</span></button></div>
@@ -266,6 +273,15 @@
       <footer class="footer"><span>Repo Museum / open collection</span><span>Built for curious maintainers</span><span>RM—001</span></footer>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="room-transition" id="room-transition" aria-hidden="true">
+      <div class="room-transition-rule" aria-hidden="true"></div>
+      <div class="room-transition-copy">
+        <p id="room-transition-kicker">Leaving the foyer</p>
+        <strong id="room-transition-title">Entering the history hall</strong>
+        <span id="room-transition-note">Following the evidence into the next room</span>
+      </div>
+      <div class="room-transition-mark" aria-hidden="true">RM / <span id="room-transition-index">01</span></div>
+    </div>
     <script src="app.js" defer></script>
   </body>
 </html>

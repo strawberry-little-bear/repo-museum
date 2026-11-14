@@ -4,6 +4,18 @@
   "title": "Repo Museum Data",
   "type": "object",
   "required": ["repo", "name", "events", "dependencies", "analysis", "orientation", "architecture"],
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["type", "ref", "label"],
+      "properties": {
+        "type": { "enum": ["commit", "release", "file", "directory", "issue"] },
+        "ref": { "type": "string" },
+        "label": { "type": "string" },
+        "claim": { "type": "string" }
+      }
+    }
+  },
   "properties": {
     "repo": { "type": "string" },
     "name": { "type": "string" },
@@ -31,7 +43,9 @@
               "interaction": { "type": "string" },
               "takeaway": { "type": "string" },
               "mode": { "enum": ["observed", "inferred", "mixed"] },
-              "evidence": { "type": "array", "items": { "type": "object" } }
+              "discovery": { "type": "string" },
+              "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+              "evidenceTrail": { "type": "array", "items": { "$ref": "#/$defs/evidence" } }
             }
           }
         }
@@ -118,6 +132,10 @@
         "historySummary": { "type": "string" },
         "exit": { "type": "string" },
         "confidence": { "type": "string" },
+        "turningPointReason": { "type": "string" },
+        "distinctDates": { "type": "integer", "minimum": 0 },
+        "excludedSameDayEvents": { "type": "integer", "minimum": 0 },
+        "coverage": { "type": "string" },
         "arc": {
           "type": "array",
           "minItems": 0,
@@ -128,7 +146,28 @@
               "title": { "type": "string" },
               "summary": { "type": "string" },
               "lesson": { "type": "string" },
-              "evidence": { "type": "array", "items": { "type": "object" } }
+              "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } }
+            }
+          }
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "role", "start", "end", "title", "summary", "lesson", "commitCount", "reason", "evidence", "coverage"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "role": { "enum": ["origin", "turning", "now"] },
+              "start": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+              "end": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+              "title": { "type": "string" },
+              "summary": { "type": "string" },
+              "lesson": { "type": "string" },
+              "commitCount": { "type": "integer", "minimum": 1 },
+              "reason": { "type": "string" },
+              "coverage": { "type": "string" },
+              "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } }
             }
           }
         },
