@@ -216,6 +216,28 @@
                   <div class="architecture-intro"><p id="architecture-summary">The Agent is reading the project's visible structure.</p><span class="evidence-label">Observed from the current tree</span></div>
                   <div class="machine-map" id="machine-map"></div>
                   <div class="architecture-spotlight" id="architecture-spotlight"><p class="subsection-label">Select a part of the blueprint</p><strong id="architecture-spotlight-title">The repository is a set of responsibilities.</strong><p id="architecture-spotlight-copy">Choose a node above to connect its role to the visitor path.</p><a id="architecture-spotlight-source" href="#" target="_blank" rel="noreferrer">Open evidence ↗</a></div>
+                  <div class="repo-explorer" id="repo-explorer" aria-labelledby="repo-explorer-title">
+                    <div class="repo-explorer-heading">
+                      <div><p class="subsection-label">Repository atlas</p><h5 id="repo-explorer-title">Read the project in the order a newcomer would.</h5></div>
+                      <div class="repo-map-metrics" id="repo-map-metrics" aria-live="polite"></div>
+                    </div>
+                    <div class="repo-read-order">
+                      <div class="repo-read-order-heading"><span class="subsection-label">Suggested first route</span><p id="repo-map-route-note">A short evidence trail from purpose to implementation.</p></div>
+                      <div class="repo-read-order-list" id="repo-read-order"></div>
+                    </div>
+                    <div class="repo-explorer-workbench">
+                      <div class="repo-browser">
+                        <label class="repo-search" for="repo-map-search"><span class="sr-only">Search every indexed repository path</span><span aria-hidden="true">↳</span><input id="repo-map-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search every tracked path…" /></label>
+                        <div class="repo-map-filters" id="repo-map-filters" role="group" aria-label="Filter repository paths"></div>
+                        <div class="repo-map-list-head"><span>Indexed paths</span><span id="repo-map-count">0 paths</span></div>
+                        <div class="repo-map-list" id="repo-map-list" aria-live="polite"></div>
+                        <p class="repo-map-partial" id="repo-map-partial" hidden></p>
+                      </div>
+                      <p class="sr-only" id="repo-preview-status" role="status" aria-live="polite"></p>
+                      <article class="repo-preview" id="repo-preview" aria-busy="false"></article>
+                    </div>
+                    <p class="repo-map-footnote"><span aria-hidden="true">◇</span> The route is a reading suggestion, not a claim about runtime execution. Every file opens from the tracked tree and links back to GitHub.</p>
+                  </div>
                   <div class="architecture-grid"><div><p class="subsection-label">Main rooms</p><div class="architecture-list" id="architecture-folders"></div></div><div><p class="subsection-label">Important objects</p><div class="architecture-list" id="architecture-files"></div></div></div>
                   <div class="entrypoint-strip"><span class="subsection-label">Where the visit can begin</span><div id="architecture-entrypoints"></div></div>
                   <div class="panel-footer"><span id="architecture-source-note">Every role is an evidence-backed reading, not a claim about intent.</span><a class="source-chip" id="architecture-source" href="#" target="_blank" rel="noreferrer">↗ Open repository tree</a></div>

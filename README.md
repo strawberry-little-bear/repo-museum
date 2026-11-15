@@ -11,7 +11,7 @@ It is a static, browser-first experience with a guided route through a connected
 
 - **The foyer**: a plain-language answer to “what is this project for?” before the visitor sees code-shaped details.
 - **First visitor**: one ordinary use of the project, explained in plain language first and technical language second.
-- **Blueprint room**: an Agent or browser reading of the parts that make that use-path possible.
+- **Blueprint room**: an Agent or browser reading of the parts that make that use-path possible, anchored by a searchable Repository Atlas and a suggested first-reading route.
 - **History hall**: commits grouped by natural day into an evidence-backed origin / turning point / now arc. A busy day appears once, and selecting a chapter reveals its reason, lesson, sampling coverage, and ordered evidence trail.
 - **Ecosystem room**: direct dependencies surfaced from common manifest files. It disappears when the public scan finds no specimens.
 - **Exit workshop**: three questions that let a visitor repeat the project's story without memorising a metric list, with immediate feedback and room completion, followed by a small commit pulse.
@@ -24,7 +24,20 @@ The history reader collapses commits that share a natural day, reports how many 
 
 Loading, error, and exhibit content are mutually exclusive states, so the archive status cannot sit over an already rendered collection. Empty optional rooms, unavailable history, partial samples, and missing manifests all degrade in place rather than becoming decorative empty exhibits.
 
-The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag.
+## Repository Atlas
+
+The Blueprint room now includes a Repository Atlas designed as an archival reading desk rather than a generic file browser. It answers a newcomer's practical question: **what should I read next, and why?**
+
+- The browser indexes every path returned by GitHub's recursive tree; the local Agent indexes every path in the tracked HEAD tree.
+- A suggested route moves from public promise to dependency boundary, entry point, implementation, public surface, example, test, and maintenance path. Missing stops are omitted instead of fabricated.
+- Every route stop explains its reading role and links to the exact tracked path.
+- Every indexed path is searchable and filterable. Selecting a folder narrows the path index; selecting a file loads a bounded text preview.
+- The local Agent embeds small text previews in the artifact. The public browser fetches readable files on demand from GitHub raw, with binary, lock-file, minified-file, and oversized-file fallbacks.
+- Browser scans and local Agent artifacts use the same `repositoryMap` contract: totals, extensions, directories, indexed entries, route stops, and optional previews.
+- If GitHub returns a partial recursive tree, the atlas says so instead of presenting the partial list as the whole repository.
+- Reading roles are inferred from names and paths. The route is a reading suggestion, not evidence that a file executes, that a dependency is used at runtime, or that the project has been run.
+
+The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, `repositoryMap`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag.
 
 ## Run locally
 
@@ -44,13 +57,13 @@ From the root of a Git repository:
 python3 skills/repo-museum/scripts/build_museum.py
 ```
 
-This creates `.repo-museum/museum.json`. It uses only local Git and the Python standard library; it reads the tracked README, top-level tree, manifests, tags, and commit history. It does not push, publish, or upload repository contents. To inspect the generated collection in the local museum, serve the repository root and open:
+This creates `.repo-museum/museum.json`. It uses only local Git and the Python standard library; it indexes the tracked HEAD tree, then reads the README, manifests, tags, and commit history. Text previews are capped at 60,000 characters and 2 MB of source. It does not push, publish, or upload repository contents. To inspect the generated collection in the local museum, serve the repository root and open:
 
 ```text
 http://localhost:4173/?museum=.repo-museum%2Fmuseum.json
 ```
 
-The reusable skill instructions live in `skills/repo-museum/SKILL.md`. The renderer contract is documented in `schema/museum-data.schema.json`.
+The reusable skill instructions live in `skills/repo-museum/SKILL.md`. The renderer contract, including the optional `repositoryMap`, is documented in `schema/museum-data.schema.json`. Artifacts created before the atlas remain valid; when `repositoryMap` is absent, the optional Atlas exhibit is hidden.
 
 ## Share a collection
 
@@ -80,6 +93,6 @@ schema/          shared museum data contract
 
 ## Product boundary
 
-The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into one discovery with an ordered evidence trail; `analysis.phases` explains the grouped natural-day arc and why its turning point was selected; `analysis.turningPointReason`, `analysis.distinctDates`, `analysis.excludedSameDayEvents`, and `analysis.coverage` keep the reading auditable. `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
+The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `repositoryMap`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into one discovery with an ordered evidence trail; `analysis.phases` explains the grouped natural-day arc and why its turning point was selected; `analysis.turningPointReason`, `analysis.distinctDates`, `analysis.excludedSameDayEvents`, and `analysis.coverage` keep the reading auditable. `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
 
 Built by `strawberry-little-bear`.

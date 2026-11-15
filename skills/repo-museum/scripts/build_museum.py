@@ -95,12 +95,31 @@ def commit_stats(sha: str) -> dict[str, int]:
     return {"additions": added, "deletions": deleted, "files": files}
 
 
+@lru_cache(maxsize=1)
 def tree_files() -> list[str]:
     return [item for item in run("ls-tree", "-r", "--name-only", "HEAD").splitlines() if item]
 
 
+@lru_cache(maxsize=1)
+def tree_file_sizes() -> dict[str, int]:
+    """Return tracked blob sizes without checking out the working tree."""
+    sizes: dict[str, int] = {}
+    for line in run("ls-tree", "-r", "-l", "HEAD").splitlines():
+        metadata, separator, path = line.partition("\t")
+        if not separator:
+            continue
+        parts = metadata.split()
+        if len(parts) < 4 or parts[1] != "blob":
+            continue
+        try:
+            sizes[path] = int(parts[3])
+        except ValueError:
+            continue
+    return sizes
+
+
 def read_tracked_text(path: str, limit: int = 120_000) -> str:
-    if path not in set(tree_files()):
+    if path not in tree_files():
         return ""
     try:
         raw = run("show", f"HEAD:{path}")
@@ -222,6 +241,30 @@ IMPLEMENTATION_FOLDERS = {
 LEARNING_FOLDERS = {"docs", "doc", "website", "site", "examples", "example", "demo", "playground", "tests", "test", "spec", "__tests__", "e2e", "benchmarks", "benchmark", "fixtures"}
 SUPPORT_FOLDERS = {"scripts", "tools", "bin", "config", "configs", "assets", "public", "static", "styles", ".github", ".repo-museum", ".vscode", ".idea"}
 GENERATED_FOLDERS = {"node_modules", "vendor", "dist", "build", "coverage", "__pycache__", ".cache"}
+REPOSITORY_MANIFESTS = {
+    "package.json", "pyproject.toml", "requirements.txt", "cargo.toml", "go.mod",
+    "composer.json", "gemfile", "pom.xml", "build.gradle", "build.gradle.kts",
+    "deno.json", "bun.lockb",
+}
+CODE_EXTENSIONS = {
+    ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".rs",
+    ".go", ".rb", ".java", ".kt", ".kts", ".swift", ".c", ".h", ".cc", ".cpp",
+    ".hpp", ".cs", ".php", ".scala", ".ex", ".exs", ".erl", ".hs", ".lua", ".r",
+    ".jl", ".sh", ".bash", ".zsh", ".ps1", ".sql",
+}
+STYLE_EXTENSIONS = {".css", ".scss", ".sass", ".less", ".styl"}
+DOCUMENT_EXTENSIONS = {".md", ".mdx", ".rst", ".adoc", ".txt"}
+CONFIG_EXTENSIONS = {".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".xml", ".gradle", ".properties"}
+PREVIEW_BLOCKED_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp", ".tiff",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".gz", ".tgz",
+    ".bz2", ".xz", ".7z", ".rar", ".jar", ".class", ".pyc", ".wasm", ".mp3",
+    ".mp4", ".mov", ".avi", ".webm", ".ogg", ".wav", ".flac", ".so", ".dylib",
+    ".dll", ".exe",
+}
+LOCK_FILES = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "cargo.lock", "poetry.lock", "uv.lock", "composer.lock", "gemfile.lock"}
+MAX_PREVIEW_BYTES = 2_000_000
+MAX_PREVIEW_CHARS = 60_000
 
 
 def role_for_path(path: str, is_folder: bool = False) -> str:
@@ -345,6 +388,310 @@ def is_support_folder(name: str) -> bool:
     return folder_priority(name) >= 4
 
 
+def path_basename(path: str) -> str:
+    return path.rsplit("/", 1)[-1]
+
+
+def path_extension(path: str) -> str:
+    basename = path_basename(path).lower()
+    if "." not in basename.lstrip("."):
+        return ""
+    return "." + basename.rsplit(".", 1)[-1]
+
+
+def is_generated_path(path: str) -> bool:
+    return any(part.lower() in GENERATED_FOLDERS for part in path.split("/") if part)
+
+
+def repository_path_category(path: str) -> str:
+    lower = path.lower()
+    basename = path_basename(lower)
+    extension = path_extension(lower)
+    if is_generated_path(lower):
+        return "generated"
+    if lower.startswith(".github/workflows/") or (
+        re.search(r"(^|/)(ci|release|publish)(\.|/|$)", lower) and lower.endswith((".yml", ".yaml", ".sh"))
+    ):
+        return "automation"
+    if basename in REPOSITORY_MANIFESTS:
+        return "manifest"
+    if (
+        re.search(r"(^|/)(__tests__|tests?|specs?|e2e|testdata|fixtures)/", lower)
+        or re.search(r"(^|[._-])(test|spec)([._-]|$)", basename)
+    ):
+        return "test"
+    if re.match(r"^(readme|changelog|contributing|code_of_conduct|security|support)(\.|$)", basename) or re.search(
+        r"(^|/)(docs?|documentation)/", lower
+    ) or extension in DOCUMENT_EXTENSIONS:
+        return "documentation"
+    if re.search(r"(^|/)(examples?|demos?|playground|samples?)/", lower):
+        return "example"
+    if extension in STYLE_EXTENSIONS or re.search(r"(^|/)(styles?|theme|themes)/", lower):
+        return "code"
+    if extension in CODE_EXTENSIONS:
+        return "code"
+    if (
+        basename in LOCK_FILES
+        or re.match(
+            r"^(\.?[^/]*(config|rc)|tsconfig|vite\.config|webpack|rollup|eslint|prettier|babel|jest|vitest|tailwind|postcss|dockerfile|makefile)",
+            basename,
+        )
+        or extension in CONFIG_EXTENSIONS
+    ):
+        return "config"
+    return "asset"
+
+
+def path_read_preference(path: str, project_name: str = "", context: str = "") -> tuple[int, str]:
+    depth = len(path.split("/"))
+    lower = path.lower()
+    segments = lower.split("/")
+    basename = path_basename(lower)
+    stem = basename.rsplit(".", 1)[0] if "." in basename else basename
+    project_stem = project_name.split("/")[-1].lower()
+    direct_test = depth == 1 or (segments[0] in {"test", "tests", "spec", "specs", "__tests__"} and depth == 2)
+    score = (depth - 1) * 9
+    if depth == 1 and re.match(r"^(readme|package|pyproject|requirements|cargo|go)\.", path_basename(path), re.I):
+        score -= 24
+    if depth == 1 and re.match(r"^readme(\.|$)", basename, re.I):
+        score -= 80
+    if re.search(r"(^|/)(src|lib|app|packages|server|core)/", lower):
+        score -= 18
+    if context in {"implementation", "entrypoint", "api"} and any(
+        segment in LEARNING_FOLDERS or segment in SUPPORT_FOLDERS or segment.startswith(".") for segment in segments
+    ):
+        score += 30
+    if context == "test" and direct_test and re.search(r"(^|\.)(test|spec)(\.|$)", stem):
+        score -= 28
+    if context == "test" and any(segment in {"testdata", "fixtures", "test_apps", "apps"} for segment in segments):
+        score += 24
+    if context == "example" and re.match(r"^readme(\.|$)", basename):
+        score -= 20
+    if context == "example" and re.match(r"^(main|app|index|manage|example|demo)(\.|$)", stem):
+        score -= 12
+    if segments[0] in {"devcontainer", "devcontainers", "docker", "deploy", "deployment", "ci"}:
+        score += 30
+    if context in {"implementation", "entrypoint", "api"} and project_stem and stem == project_stem:
+        score -= 24
+    if context == "implementation" and stem in {"__init__", "index"}:
+        score += 16
+    if context == "implementation" and stem in {
+        "core", "engine", "server", "main", "app", "client", "router", "context", "request", "response", "handler",
+    }:
+        score -= 10
+    if stem in {"app", "main", "index", "server", "core", "client", "lib", "router"}:
+        score -= 8
+    if path_extension(path) == ".sh":
+        score += 10
+    if is_generated_path(lower):
+        score += 100
+    return score, path
+
+
+def choose_read_path(files: list[str], predicate: Any, project_name: str = "", context: str = "") -> str:
+    candidates = [path for path in files if predicate(path)]
+    return min(candidates, key=lambda path: path_read_preference(path, project_name, context)) if candidates else ""
+
+
+def preview_text_for(path: str, size: int | None) -> str | None:
+    basename = path_basename(path).lower()
+    if path_extension(path) in PREVIEW_BLOCKED_EXTENSIONS or basename in LOCK_FILES or re.search(r"\.min\.(?:js|css)$", basename):
+        return None
+    if size is None or size < 0 or size > MAX_PREVIEW_BYTES:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "show", f"HEAD:{path}"],
+            cwd=ROOT,
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+    except (OSError, UnicodeError):
+        return None
+    if result.returncode != 0:
+        return None
+    text = result.stdout
+    sample = text[:4000]
+    controls = sum(1 for character in sample if ord(character) < 9 or 13 < ord(character) < 32)
+    if "\x00" in sample or (sample and controls / len(sample) > 0.03):
+        return None
+    return text[:MAX_PREVIEW_CHARS]
+
+
+def build_read_order(files: list[str], project_name: str = "") -> list[dict[str, str]]:
+    eligible = [path for path in files if not is_generated_path(path)]
+    used: set[str] = set()
+    route: list[dict[str, str]] = []
+
+    def add(path: str, role: str, why: str, kind: str) -> None:
+        if not path or path in used:
+            return
+        used.add(path)
+        route.append({"path": path, "role": role, "why": why, "kind": kind, "evidence": path})
+
+    root_readme = choose_read_path(
+        eligible,
+        lambda path: "/" not in path and bool(re.match(r"^readme(\.|$)", path_basename(path), re.I)),
+        project_name,
+        "documentation",
+    )
+    readme = root_readme or choose_read_path(
+        eligible,
+        lambda path: bool(re.match(r"^readme(\.|$)", path_basename(path), re.I)),
+        project_name,
+        "documentation",
+    )
+    root_manifest = choose_read_path(
+        eligible,
+        lambda path: "/" not in path and path_basename(path).lower() in REPOSITORY_MANIFESTS,
+        project_name,
+        "manifest",
+    )
+    manifest = root_manifest or choose_read_path(
+        eligible,
+        lambda path: path_basename(path).lower() in REPOSITORY_MANIFESTS,
+        project_name,
+        "manifest",
+    )
+    source_candidates = [path for path in eligible if path_extension(path) in CODE_EXTENSIONS]
+    entrypoint = choose_read_path(
+        source_candidates,
+        lambda path: bool(re.match(r"^(main|app|cli|server|index|__main__|manage|bin)(\.|$)", path_basename(path), re.I)),
+        project_name,
+        "entrypoint",
+    )
+    entrypoint_why = "Follow the most plausible boundary from a caller or command into the source tree."
+    if not entrypoint:
+        project_stem = project_name.split("/")[-1].lower()
+        entrypoint = choose_read_path(
+            source_candidates,
+            lambda path: bool(project_stem)
+            and path_basename(path).rsplit(".", 1)[0].lower() == project_stem
+            and repository_path_category(path) not in {"test", "example", "generated"},
+            project_name,
+            "entrypoint",
+        )
+        if entrypoint:
+            entrypoint_why = "This project-named source is the clearest public boundary available without assuming an executable command."
+    entry_set = {readme, manifest, entrypoint}
+    implementation = choose_read_path(
+        source_candidates,
+        lambda path: path not in entry_set
+        and repository_path_category(path) not in {"test", "example", "generated"}
+        and not re.match(r"^(vite|vitest|jest|webpack|rollup|eslint|tsconfig|babel|postcss|tailwind)\.", path_basename(path), re.I),
+        project_name,
+        "implementation",
+    )
+    api_surface = choose_read_path(
+        source_candidates,
+        lambda path: path not in entry_set
+        and path != implementation
+        and bool(re.search(r"(^|/)(api|routes?|handlers?|controllers?|endpoints?|server)(/|\.|$)", path.lower())),
+        project_name,
+        "api",
+    )
+    example = choose_read_path(
+        eligible,
+        lambda path: bool(re.search(r"(^|/)(examples?|demos?|playground|samples?)/", path, re.I))
+        and bool(re.match(r"^(readme|main|app|index|manage|example|demo)(\.|$)", path_basename(path), re.I)),
+        project_name,
+        "example",
+    )
+    test = choose_read_path(
+        eligible,
+        lambda path: repository_path_category(path) == "test"
+        and bool(re.search(r"(^|[._-])(test|spec)([._-]|$)", path_basename(path), re.I)),
+        project_name,
+        "test",
+    )
+    automation = choose_read_path(
+        eligible,
+        lambda path: repository_path_category(path) == "automation",
+        project_name,
+        "automation",
+    )
+    add(readme, "Public promise", "Start with the project's own account of what it does and who it serves.", "documentation")
+    add(manifest, "Dependency boundary", "See the declared commands and the capabilities the project chooses to borrow.", "manifest")
+    add(entrypoint, "Visible entry point", entrypoint_why, "entrypoint")
+    add(implementation, "Main implementation", "Read the largest implementation trail after the public and entry-point claims are clear.", "implementation")
+    add(api_surface, "Public working surface", "Look for the names that expose behavior to callers rather than internal helpers.", "api")
+    add(example, "Worked example", "Connect the code to an ordinary use without guessing about runtime behavior.", "example")
+    add(test, "Expected behavior", "Read what the project treats as correct when the happy path is exercised.", "test")
+    if len(route) < 4:
+        add(automation, "Maintenance path", "Finish with the checks and publication steps that keep the reading current.", "automation")
+    if not route and files:
+        add(files[0], "Repository record", "Begin with the first tracked file available in this partial map.", "fallback")
+    return route
+
+
+def build_repository_map(files: list[str], branch: str = "main", project_name: str = "") -> dict[str, Any]:
+    """Build the same full-tree reading contract used by the browser collector."""
+    unique_files = sorted({path.strip("/") for path in files if path and path.strip("/")})
+    directory_paths: set[str] = set()
+    for path in unique_files:
+        parts = path.split("/")
+        for index in range(1, len(parts)):
+            directory_paths.add("/".join(parts[:index]))
+    directory_counts = {path: 0 for path in directory_paths}
+    for path in unique_files:
+        parts = path.split("/")
+        for index in range(1, len(parts)):
+            parent = "/".join(parts[:index])
+            directory_counts[parent] = directory_counts.get(parent, 0) + 1
+
+    sizes = tree_file_sizes()
+    entries: list[dict[str, Any]] = [
+        {"path": path, "type": "directory", "category": "directory", "role": role_for_path(path, True), "count": count}
+        for path, count in sorted(directory_counts.items())
+    ]
+    extension_counts: dict[str, int] = {}
+    for path in unique_files:
+        extension = path_extension(path) or "(none)"
+        extension_counts[extension] = extension_counts.get(extension, 0) + 1
+        entries.append(
+            {
+                "path": path,
+                "type": "file",
+                "category": repository_path_category(path),
+                "role": role_for_path(path),
+                "extension": extension,
+                "size": sizes.get(path),
+            }
+        )
+
+    read_order = build_read_order(unique_files, project_name)
+    previews: dict[str, str] = {}
+    for item in read_order:
+        preview = preview_text_for(item["path"], sizes.get(item["path"]))
+        if preview:
+            item["preview"] = preview
+            previews[item["path"]] = preview
+    for item in entries:
+        if item["path"] in previews:
+            item["preview"] = previews[item["path"]]
+
+    return {
+        "root": "",
+        "branch": branch,
+        "truncated": False,
+        "totalFiles": len(unique_files),
+        "totalDirectories": len(directory_paths),
+        "indexedEntries": len(entries),
+        "extensions": [
+            {"extension": extension, "count": count}
+            for extension, count in sorted(extension_counts.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "directories": [
+            {"path": path, "count": count}
+            for path, count in sorted(directory_counts.items(), key=lambda item: (-item[1], item[0]))[:80]
+        ],
+        "readOrder": read_order,
+        "entries": entries,
+        "coverageNote": "Every path in the tracked HEAD tree is indexed; reading roles are inferred from names and paths.",
+    }
+
+
 def build_orientation(description: str, readme: str, language: str) -> dict[str, str]:
     readable = plain_text(readme)
     first_sentence = re.search(r"[^.!?]{20,220}[.!?]", readable)
@@ -394,14 +741,19 @@ def build_journey(files: list[str], readme_path: str | None, manifest_path: str 
     }
 
 
-def build_architecture(files: list[str], manifest_path: str | None, readme_path: str | None, language: str) -> dict[str, Any]:
+def build_architecture(
+    files: list[str],
+    manifest_path: str | None,
+    readme_path: str | None,
+    language: str,
+    repository_map: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    paths = [path for path in files if not is_generated_path(path)]
     folder_counts: dict[str, int] = {}
-    for path in files:
+    for path in paths:
         if "/" not in path:
             continue
         folder = path.split("/", 1)[0]
-        if folder.lower() in GENERATED_FOLDERS:
-            continue
         folder_counts[folder] = folder_counts.get(folder, 0) + 1
     folders = [
         {"name": folder, "role": role_for_path(folder, True), "evidence": folder, "fileCount": count}
@@ -410,45 +762,79 @@ def build_architecture(files: list[str], manifest_path: str | None, readme_path:
     folders = sorted(folders, key=lambda item: (folder_priority(item["name"]), -item["fileCount"], item["name"].lower()))[:10]
     working_folders = [item for item in folders if not is_support_folder(item["name"])]
 
-    root_files = [path for path in files if "/" not in path]
-    source_suffixes = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".rs", ".go", ".rb", ".java", ".html")
     entrypoint_names = re.compile(r"^(main|app|cli|server|index|__main__|manage|bin)(\.|$)", re.I)
-    entry_candidates = [path for path in root_files if entrypoint_names.match(path) or path in {"app.py", "index.html"}]
-    entry_candidates += [path for path in root_files if path.endswith(source_suffixes) and path not in entry_candidates]
-    config_candidates = [path for path in root_files if re.search(r"workspace|config|lock|test|spec", path, re.I)]
+    entry_candidates = [path for path in paths if entrypoint_names.match(path_basename(path))]
+    entry_candidates += [path for path in paths if path_extension(path) in CODE_EXTENSIONS and path not in entry_candidates]
+    entry_candidates = sorted(entry_candidates, key=path_read_preference)
+    config_candidates = [path for path in paths if re.search(r"workspace|config|lock|test|spec", path_basename(path), re.I)]
+    read_order = repository_map.get("readOrder", []) if repository_map else []
+    order_path = lambda kind: next((str(item.get("path")) for item in read_order if item.get("kind") == kind), "")
+    actual_entrypoints = [
+        path
+        for path in dict.fromkeys(
+            [
+                order_path("entrypoint"),
+                order_path("api"),
+                *entry_candidates[:3],
+            ]
+        )
+        if path
+    ][:3]
+    entrypoints = actual_entrypoints or [path for path in [manifest_path, readme_path, "README.md"] if path]
+    ordered_files = [
+        {"name": item["path"], "role": item.get("role") or role_for_path(item["path"]), "evidence": item["path"], "why": item.get("why", "")}
+        for item in read_order
+        if item.get("path")
+    ]
     interesting = list(dict.fromkeys(
         [path for path in [readme_path, manifest_path] if path]
+        + [item["name"] for item in ordered_files]
         + entry_candidates[:4]
         + config_candidates[:4]
     ))
     file_items = [{"name": path, "role": role_for_path(path), "evidence": path} for path in interesting[:10]]
-    entrypoints = entry_candidates[:3] or ([manifest_path] if manifest_path else ([readme_path] if readme_path else []))
     main_folder = next((item for item in working_folders if item["name"].lower() in IMPLEMENTATION_FOLDERS), None)
     result_folder = next((item for item in working_folders if item["name"].lower() in LEARNING_FOLDERS), None)
     implementation_files = [
         item for item in file_items
         if re.search(r"source file|application script|application entry point|document entry point|presentation layer|server or request surface", item.get("role", ""), re.I)
     ]
-    implementation_paths = [item["name"] for item in implementation_files[:2]]
-    working_names = [item["name"] for item in working_folders[:3]]
-    leading_paths = list(dict.fromkeys([*implementation_paths, *working_names]))
+    leading_paths = list(
+        dict.fromkeys(
+            [
+                order_path("documentation"),
+                order_path("manifest"),
+                order_path("entrypoint"),
+                order_path("implementation"),
+                *[item["name"] for item in implementation_files[:2]],
+                *[item["name"] for item in working_folders[:2]],
+            ]
+        )
+    )[:5]
     if leading_paths:
-        summary = f"{language} project whose visible working paths lead through {natural_list(leading_paths)}."
+        summary = (
+            f"{language} project with {len(files)} tracked files across {repository_map.get('totalDirectories', 0) if repository_map else 0} folders. "
+            f"A first reading route runs through {natural_list(leading_paths)}."
+        )
     else:
-        summary = f"{language} project whose work is visible mainly through its tracked files."
+        summary = f"{language} project whose work is visible mainly through its {len(files)} tracked files."
     return {
         "summary": summary,
         "flow": [
-            {"label": "Person or caller", "role": "Where the request begins", "detail": "A user, command, or another system gives the project something to do.", "evidence": readme_path or "README.md"},
-            {"label": "Entry point", "role": "The front door", "detail": "A tracked source file or command surface is the clearest visible boundary into the project.", "evidence": entrypoints[0] if entrypoints else manifest_path or readme_path or "README.md"},
-            {"label": "Main implementation", "role": "Where the work happens", "detail": "The most legible implementation-named area coordinates the project's main behavior.", "evidence": main_folder["evidence"] if main_folder else entrypoints[0] if entrypoints else readme_path or "README.md"},
-            {"label": "Supporting tools", "role": "Capabilities the project borrows", "detail": "Dependencies and configuration fill in the parts the repository does not build alone.", "evidence": manifest_path or (file_items[0]["evidence"] if file_items else readme_path or "README.md")},
-            {"label": "Result", "role": "What comes back", "detail": "Documentation, examples, tests, or the public description show the project's output.", "evidence": result_folder["evidence"] if result_folder else readme_path or manifest_path or "README.md"},
+            {"label": "Person or caller", "role": "Where the request begins", "detail": "Start with the public promise, then follow the files that translate it into a working boundary.", "evidence": readme_path or order_path("documentation") or "README.md"},
+            {"label": "Entry point", "role": "The front door", "detail": "The reading route identifies a tracked source or command surface before descending into helpers.", "evidence": order_path("entrypoint") or entrypoints[0]},
+            {"label": "Main implementation", "role": "Where the work happens", "detail": "The implementation trail is selected from the recursive tree, not just a top-level folder name.", "evidence": order_path("implementation") or (main_folder["evidence"] if main_folder else entrypoints[0])},
+            {"label": "Supporting tools", "role": "Capabilities the project borrows", "detail": "The manifest and configuration make the project's dependency and build boundaries visible.", "evidence": manifest_path or order_path("manifest") or (file_items[0]["evidence"] if file_items else readme_path or "README.md")},
+            {"label": "Result", "role": "What comes back", "detail": "Examples, documentation, and checks show what the project expects a usable result to look like.", "evidence": order_path("example") or order_path("test") or (result_folder["evidence"] if result_folder else readme_path or manifest_path or "README.md")},
         ],
         "folders": folders,
         "files": file_items,
         "entrypoints": entrypoints,
-        "sourceNote": "Roles are inferred from tracked names and paths; each item links back to the file or directory that supports the reading.",
+        "sourceNote": (
+            f"Roles are inferred from {len(files)} recursively indexed files; the suggested route never claims to have executed the project."
+            if repository_map
+            else "Roles are inferred from tracked names and paths; each item links back to the file or directory that supports the reading."
+        ),
     }
 
 
@@ -1018,9 +1404,12 @@ def build_learning(
     dependencies: list[dict[str, str]],
     readme_path: str | None,
     manifest_path: str | None,
+    repository_map: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create the visitor-facing teaching contract shared by Agent and browser renders."""
-    first_evidence = readme_path or manifest_path or "README.md"
+    read_order = repository_map.get("readOrder", []) if repository_map else []
+    route_path = lambda kind: next((str(item.get("path")) for item in read_order if item.get("kind") == kind), "")
+    first_evidence = readme_path or route_path("documentation") or manifest_path or "README.md"
 
     def file_evidence(ref: str) -> dict[str, str]:
         return {"type": "file", "ref": ref, "label": ref}
@@ -1039,13 +1428,16 @@ def build_learning(
         [item for phase in phases for item in phase.get("evidence", [])],
         limit=4,
     )
-    entrypoint_evidence = dedupe_evidence(
-        [
-            file_evidence(str(step.get("evidence") or first_evidence))
-            for step in journey.get("steps", [])
-        ],
-        limit=3,
-    )
+    route_evidence = [
+        file_evidence(str(item.get("path")))
+        for item in read_order
+        if item.get("path") and item.get("kind") in {"entrypoint", "implementation", "api", "example", "test"}
+    ]
+    journey_evidence = [
+        file_evidence(str(step.get("evidence") or first_evidence))
+        for step in journey.get("steps", [])
+    ]
+    entrypoint_evidence = dedupe_evidence([*route_evidence, *journey_evidence], limit=5)
     folder_roles = {
         str(item.get("name")): str(item.get("role") or "A tracked project area")
         for item in working_folders[:3]
@@ -1080,10 +1472,16 @@ def build_learning(
         )
     else:
         journey_discovery = "The visible record does not expose a confident entry path, so this room stays explicitly inferred."
-    source_files = [
+    architecture_source_files = [
         item for item in architecture.get("files", [])
         if re.search(r"source file|application script|application entry point|document entry point|presentation layer|server or request surface", item.get("role", ""), re.I)
     ]
+    route_source_files = [
+        {"name": str(item.get("path")), "role": str(item.get("role") or role_for_path(str(item.get("path")))), "evidence": str(item.get("path"))}
+        for item in read_order
+        if item.get("kind") in {"entrypoint", "implementation", "api"}
+    ]
+    source_files = list({str(item.get("name")): item for item in [*route_source_files, *architecture_source_files] if item.get("name")}.values())
     source_names = [str(item.get("name")) for item in source_files[:2]]
     role_phrases = [f"{name} ({role[0].lower() + role[1:] if role else role})" for name, role in folder_roles.items()]
     if source_names and role_phrases:
@@ -1096,6 +1494,11 @@ def build_learning(
         architecture_discovery = f"The most legible working structure is carried by {natural_list(source_names)}."
     else:
         architecture_discovery = "The tree exposes too few implementation-named areas for a strong structural claim, so the blueprint stays deliberately coarse."
+    if repository_map and read_order:
+        architecture_discovery += (
+            f" The atlas selected {len(read_order)} reading stops from {repository_map.get('totalFiles', 0)} tracked files; "
+            "these are suggested paths, not proof of runtime execution."
+        )
     dependency_discovery = (
         f"{manifest_path or 'The manifest'} declares {', '.join(dependency_names)}; these are direct capabilities, not hidden transitive dependencies."
         if dependency_names else "No readable direct dependency is exposed, so the ecosystem room is omitted rather than staged empty."
@@ -1261,6 +1664,7 @@ def main() -> None:
     commits = parse_commits()
     days = group_commits_by_day(commits)
     files = tree_files()
+    branch = maybe_run("symbolic-ref", "--short", "HEAD") or "main"
     readme_text, readme_path = read_readme(files)
     dependencies: list[dict[str, str]] = []
     manifest_path = None
@@ -1292,12 +1696,12 @@ def main() -> None:
     manifest_description = clip_sentence(str(manifest_meta.get("description") or "")) if manifest_meta.get("description") else ""
     description = manifest_description or description_from_readme(readme_text) or "A local repository examined through its own evidence."
     orientation = build_orientation(description, readme_text, language)
-    architecture = build_architecture(files, manifest_path, readme_path, language)
+    repository_map = build_repository_map(files, branch, slug)
+    architecture = build_architecture(files, manifest_path, readme_path, language, repository_map)
     journey = build_journey(files, readme_path, manifest_path, architecture)
-    learning = build_learning(orientation, journey, architecture, analysis, dependencies, readme_path, manifest_path)
-    branch = maybe_run("symbolic-ref", "--short", "HEAD") or "main"
+    learning = build_learning(orientation, journey, architecture, analysis, dependencies, readme_path, manifest_path, repository_map)
     artifact = {
-        "version": "1.1",
+        "version": "1.2",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "project": {"repo": slug, "name": slug.replace("/", " / "), "htmlUrl": url, "description": description, "manifestPath": manifest_path, "defaultBranch": branch},
         "repo": slug,
@@ -1319,6 +1723,7 @@ def main() -> None:
         "orientation": orientation,
         "journey": journey,
         "architecture": architecture,
+        "repositoryMap": repository_map,
         "commits": pulse,
         "analysis": analysis,
         "learning": learning,

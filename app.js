@@ -149,6 +149,13 @@ const state = {
   foyerView: "scene",
   selectedJourneyStep: 0,
   selectedArchitecture: 0,
+  explorerQuery: "",
+  explorerFilter: "all",
+  explorerPath: "",
+  explorerPreview: null,
+  explorerPreviewState: "idle",
+  explorerRequestId: 0,
+  explorerAbortController: null,
   selectedHistory: 0,
   selectedDependency: 0,
   exitAnswers: {},
@@ -409,6 +416,181 @@ const IMPLEMENTATION_FOLDERS = new Set(["src", "lib", "app", "apps", "packages",
 const LEARNING_FOLDERS = new Set(["docs", "doc", "website", "site", "examples", "example", "demo", "playground", "tests", "test", "spec", "__tests__", "e2e", "benchmarks", "benchmark", "fixtures"]);
 const SUPPORT_FOLDERS = new Set(["scripts", "tools", "bin", "config", "configs", "assets", "public", "static", "styles", ".github", ".repo-museum", ".vscode", ".idea"]);
 const GENERATED_FOLDERS = new Set(["node_modules", "vendor", "dist", "build", "coverage", "__pycache__", ".cache"]);
+const REPOSITORY_MANIFESTS = new Set(["package.json", "pyproject.toml", "requirements.txt", "cargo.toml", "go.mod", "composer.json", "gemfile", "pom.xml", "build.gradle", "build.gradle.kts", "deno.json", "bun.lockb"]);
+const CODE_EXTENSIONS = new Set([".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".rs", ".go", ".rb", ".java", ".kt", ".kts", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php", ".scala", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".jl", ".sh", ".bash", ".zsh", ".ps1", ".sql"]);
+const STYLE_EXTENSIONS = new Set([".css", ".scss", ".sass", ".less", ".styl"]);
+const DOCUMENT_EXTENSIONS = new Set([".md", ".mdx", ".rst", ".adoc", ".txt"]);
+const CONFIG_EXTENSIONS = new Set([".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".xml", ".gradle", ".properties"]);
+const PREVIEW_BLOCKED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp", ".tiff", ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".jar", ".class", ".pyc", ".wasm", ".mp3", ".mp4", ".mov", ".avi", ".webm", ".ogg", ".wav", ".flac", ".so", ".dylib", ".dll", ".exe"]);
+const LOCK_FILES = new Set(["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "cargo.lock", "poetry.lock", "uv.lock", "composer.lock", "gemfile.lock"]);
+const FILTER_LABELS = { all: "All", code: "Code", documentation: "Docs", manifest: "Manifest", test: "Tests", example: "Examples", config: "Config", automation: "CI", asset: "Assets", generated: "Generated", directory: "Folders" };
+
+function pathBasename(path) {
+  return String(path || "").split("/").at(-1) || "";
+}
+
+function pathExtension(path) {
+  const basename = pathBasename(path).toLowerCase();
+  const dot = basename.lastIndexOf(".");
+  return dot > 0 ? basename.slice(dot) : "";
+}
+
+function isGeneratedPath(path) {
+  return String(path || "").split("/").some((part) => GENERATED_FOLDERS.has(part.toLowerCase()));
+}
+
+function repositoryPathCategory(path) {
+  const lower = String(path || "").toLowerCase();
+  const basename = pathBasename(lower);
+  const extension = pathExtension(lower);
+  if (isGeneratedPath(lower)) return "generated";
+  if (lower.startsWith(".github/workflows/") || (/(^|\/)(ci|release|publish)(\.|\/|$)/.test(lower) && /\.(ya?ml|sh)$/.test(lower))) return "automation";
+  if (REPOSITORY_MANIFESTS.has(basename)) return "manifest";
+  if (/(^|\/)(__tests__|tests?|specs?|e2e|testdata|fixtures)\//.test(lower) || /(^|[._-])(test|spec)([._-]|$)/.test(basename)) return "test";
+  if (/^(readme|changelog|contributing|code_of_conduct|security|support)(\.|$)/i.test(basename) || /(^|\/)(docs?|documentation)\//.test(lower) || DOCUMENT_EXTENSIONS.has(extension)) return "documentation";
+  if (/(^|\/)(examples?|demos?|playground|samples?)\//.test(lower)) return "example";
+  if (STYLE_EXTENSIONS.has(extension) || /(^|\/)(styles?|theme|themes)\//.test(lower)) return "code";
+  if (CODE_EXTENSIONS.has(extension)) return "code";
+  if (LOCK_FILES.has(basename) || /^(\.?[^/]*(config|rc)|tsconfig|vite\.config|webpack|rollup|eslint|prettier|babel|jest|vitest|tailwind|postcss|dockerfile|makefile)/.test(basename) || CONFIG_EXTENSIONS.has(extension)) return "config";
+  return "asset";
+}
+
+function pathReadPreference(path, projectName = "", context = "") {
+  const depth = path.split("/").length;
+  const lower = path.toLowerCase();
+  const segments = lower.split("/");
+  const basename = pathBasename(lower);
+  const stem = basename.replace(/\.[^.]+$/, "");
+  const projectStem = String(projectName || "").split("/").at(-1).toLowerCase();
+  const directTest = depth === 1 || (["test", "tests", "spec", "specs", "__tests__"].includes(segments[0]) && depth === 2);
+  let score = (depth - 1) * 9;
+  if (depth === 1 && /^(readme|package|pyproject|requirements|cargo|go)\./i.test(pathBasename(path))) score -= 24;
+  if (depth === 1 && /^readme(\.|$)/i.test(basename)) score -= 80;
+  if (/(^|\/)(src|lib|app|packages|server|core)\//.test(lower)) score -= 18;
+  if (["implementation", "entrypoint", "api"].includes(context) && segments.some((segment) => LEARNING_FOLDERS.has(segment) || SUPPORT_FOLDERS.has(segment) || segment.startsWith("."))) score += 30;
+  if (context === "test" && directTest && /(^|\.)(test|spec)(\.|$)/i.test(stem)) score -= 28;
+  if (context === "test" && segments.some((segment) => ["testdata", "fixtures", "test_apps", "apps"].includes(segment))) score += 24;
+  if (context === "example" && /^readme(\.|$)/i.test(basename)) score -= 20;
+  if (context === "example" && /^(main|app|index|manage|example|demo)(\.|$)/i.test(stem)) score -= 12;
+  if (["devcontainer", "devcontainers", "docker", "deploy", "deployment", "ci"].includes(segments[0])) score += 30;
+  if (["implementation", "entrypoint", "api"].includes(context) && projectStem && stem === projectStem) score -= 24;
+  if (context === "implementation" && ["__init__", "index"].includes(stem)) score += 16;
+  if (context === "implementation" && ["core", "engine", "server", "main", "app", "client", "router", "context", "request", "response", "handler"].includes(stem)) score -= 10;
+  if (["app", "main", "index", "server", "core", "client", "lib", "router"].includes(stem)) score -= 8;
+  if (pathExtension(path) === ".sh") score += 10;
+  if (isGeneratedPath(lower)) score += 100;
+  return score;
+}
+
+function chooseReadPath(files, predicate, projectName = "", context = "") {
+  return files.filter(predicate).sort((left, right) => pathReadPreference(left, projectName, context) - pathReadPreference(right, projectName, context) || left.localeCompare(right))[0] || "";
+}
+
+function buildReadOrder(files, projectName = "") {
+  const eligible = files.filter((path) => !isGeneratedPath(path));
+  const used = new Set();
+  const route = [];
+  const add = (path, role, why, kind) => {
+    if (!path || used.has(path)) return;
+    used.add(path);
+    route.push({ path, role, why, kind, evidence: path });
+  };
+  const rootReadme = chooseReadPath(eligible, (path) => !path.includes("/") && /^readme(\.|$)/i.test(pathBasename(path)), projectName, "documentation");
+  const readme = rootReadme || chooseReadPath(eligible, (path) => /^readme(\.|$)/i.test(pathBasename(path)), projectName, "documentation");
+  const rootManifest = chooseReadPath(eligible, (path) => !path.includes("/") && REPOSITORY_MANIFESTS.has(pathBasename(path).toLowerCase()), projectName, "manifest");
+  const manifest = rootManifest || chooseReadPath(eligible, (path) => REPOSITORY_MANIFESTS.has(pathBasename(path).toLowerCase()), projectName, "manifest");
+  const sourceCandidates = eligible.filter((path) => CODE_EXTENSIONS.has(pathExtension(path)));
+  let entrypoint = chooseReadPath(sourceCandidates, (path) => /^(main|app|cli|server|index|__main__|manage|bin)(\.|$)/i.test(pathBasename(path)), projectName, "entrypoint");
+  let entrypointWhy = "Follow the most plausible boundary from a caller or command into the source tree.";
+  if (!entrypoint) {
+    const projectStem = String(projectName || "").split("/").at(-1).toLowerCase();
+    entrypoint = chooseReadPath(sourceCandidates, (path) => {
+      const stem = pathBasename(path).replace(/\.[^.]+$/, "").toLowerCase();
+      return Boolean(projectStem) && stem === projectStem && !["test", "example", "generated"].includes(repositoryPathCategory(path));
+    }, projectName, "entrypoint");
+    if (entrypoint) entrypointWhy = "This project-named source is the clearest public boundary available without assuming an executable command.";
+  }
+  const entrySet = new Set([readme, manifest, entrypoint]);
+  const implementation = chooseReadPath(sourceCandidates, (path) => {
+    if (entrySet.has(path)) return false;
+    return !["test", "example", "generated"].includes(repositoryPathCategory(path)) && !/^(vite|vitest|jest|webpack|rollup|eslint|tsconfig|babel|postcss|tailwind)\./i.test(pathBasename(path));
+  }, projectName, "implementation");
+  const apiSurface = chooseReadPath(sourceCandidates, (path) => !entrySet.has(path) && path !== implementation && /(^|\/)(api|routes?|handlers?|controllers?|endpoints?|server)(\/|\.|$)/i.test(path.toLowerCase()), projectName, "api");
+  const example = chooseReadPath(eligible, (path) => /(^|\/)(examples?|demos?|playground|samples?)\//i.test(path) && /^(readme|main|app|index|manage|example|demo)(\.|$)/i.test(pathBasename(path)), projectName, "example");
+  const test = chooseReadPath(eligible, (path) => repositoryPathCategory(path) === "test" && /(^|[._-])(test|spec)([._-]|$)/i.test(pathBasename(path)), projectName, "test");
+  const automation = chooseReadPath(eligible, (path) => repositoryPathCategory(path) === "automation", projectName, "automation");
+  add(readme, "Public promise", "Start with the project's own account of what it does and who it serves.", "documentation");
+  add(manifest, "Dependency boundary", "See the declared commands and the capabilities the project chooses to borrow.", "manifest");
+  add(entrypoint, "Visible entry point", entrypointWhy, "entrypoint");
+  add(implementation, "Main implementation", "Read the largest implementation trail after the public and entry-point claims are clear.", "implementation");
+  add(apiSurface, "Public working surface", "Look for the names that expose behavior to callers rather than internal helpers.", "api");
+  add(example, "Worked example", "Connect the code to an ordinary use without guessing about runtime behavior.", "example");
+  add(test, "Expected behavior", "Read what the project treats as correct when the happy path is exercised.", "test");
+  if (route.length < 4) add(automation, "Maintenance path", "Finish with the checks and publication steps that keep the reading current.", "automation");
+  if (!route.length && files[0]) add(files[0], "Repository record", "Begin with the first tracked file available in this partial map.", "fallback");
+  return route;
+}
+
+function buildRepositoryMap(sourceEntries = [], options = {}) {
+  const normalized = new Map();
+  for (const source of sourceEntries || []) {
+    const item = typeof source === "string" ? { path: source.replace(/\/$/, ""), type: source.endsWith("/") ? "directory" : "file" } : source;
+    const path = String(item?.path || "").replace(/^\/+|\/+$/g, "");
+    if (!path) continue;
+    const type = item.type === "directory" || item.type === "tree" ? "directory" : "file";
+    const current = normalized.get(`${type}:${path}`);
+    normalized.set(`${type}:${path}`, { ...current, ...item, path, type });
+  }
+  const fileByPath = new Map();
+  const directoryPaths = new Set();
+  for (const item of normalized.values()) {
+    if (item.type === "directory") {
+      directoryPaths.add(item.path);
+      continue;
+    }
+    fileByPath.set(item.path, item);
+    const parts = item.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) directoryPaths.add(parts.slice(0, index).join("/"));
+  }
+  const directoryCounts = new Map([...directoryPaths].map((path) => [path, 0]));
+  for (const path of fileByPath.keys()) {
+    const parts = path.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const parent = parts.slice(0, index).join("/");
+      directoryCounts.set(parent, (directoryCounts.get(parent) || 0) + 1);
+    }
+  }
+  const extensionCounts = new Map();
+  const entries = [];
+  for (const item of normalized.values()) {
+    if (item.type === "directory" && !directoryCounts.has(item.path)) directoryCounts.set(item.path, 0);
+  }
+  for (const [path, count] of [...directoryCounts].sort(([left], [right]) => left.localeCompare(right))) {
+    entries.push({ path, type: "directory", category: "directory", role: inferRole(path, true), count });
+  }
+  for (const [path, item] of [...fileByPath].sort(([left], [right]) => left.localeCompare(right))) {
+    const extension = pathExtension(path) || "(none)";
+    extensionCounts.set(extension, (extensionCounts.get(extension) || 0) + 1);
+    entries.push({ path, type: "file", category: repositoryPathCategory(path), role: inferRole(path), extension, size: Number(item.size) || null });
+  }
+  const files = [...fileByPath.keys()];
+  const readOrder = buildReadOrder(files, options.projectName || "");
+  const previewByPath = new Map(readOrder.map((item) => [item.path, item.preview]).filter(([, preview]) => preview));
+  for (const item of entries) if (previewByPath.has(item.path)) item.preview = previewByPath.get(item.path);
+  return {
+    root: "",
+    branch: options.branch || "main",
+    truncated: Boolean(options.truncated),
+    totalFiles: files.length,
+    totalDirectories: directoryPaths.size,
+    indexedEntries: entries.length,
+    extensions: [...extensionCounts].map(([extension, count]) => ({ extension, count })).sort((left, right) => right.count - left.count || left.extension.localeCompare(right.extension)),
+    directories: [...directoryCounts].map(([path, count]) => ({ path, count })).sort((left, right) => right.count - left.count || left.path.localeCompare(right.path)).slice(0, 80),
+    readOrder,
+    entries,
+    coverageNote: options.truncated ? "GitHub marked this recursive tree as truncated; the explorer indexes only the paths returned before that boundary." : "Every path returned by the current recursive tree is indexed.",
+  };
+}
 
 function stripMarkdownInline(value) {
   return String(value || "")
@@ -553,47 +735,98 @@ function buildJourney(repository, readmeText, architecture, manifestPath) {
   };
 }
 
-function buildArchitecture(tree = [], manifestPath, readmeText, repository) {
+function buildArchitecture(tree = [], manifestPath, readmeText, repository, repositoryMap = null) {
+  const paths = tree.map((item) => String(item || "").replace(/\/\.directory$/, "").replace(/\/$/, "")).filter(Boolean);
   const folderCounts = new Map();
-  for (const path of tree.filter((item) => item.includes("/"))) {
+  for (const path of paths.filter((item) => item.includes("/"))) {
     const folder = path.split("/")[0];
     if (!GENERATED_FOLDERS.has(folder.toLowerCase())) folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
   }
   const folders = [...folderCounts].map(([name, fileCount]) => ({ name, role: inferRole(name, true), evidence: name, fileCount }))
     .sort((left, right) => folderPriority(left.name) - folderPriority(right.name) || right.fileCount - left.fileCount || left.name.localeCompare(right.name)).slice(0, 10);
-  const rootFiles = tree.filter((item) => !item.includes("/"));
+  const rootFiles = paths.filter((item) => !item.includes("/"));
   const readmePath = rootFiles.find((item) => item.toLowerCase().startsWith("readme")) || (readmeText ? "README.md" : "");
   const entryPattern = /^(main|app|cli|server|index|__main__|manage|bin)(\.|$)/i;
-  const entryCandidates = rootFiles.filter((item) => entryPattern.test(item));
-  entryCandidates.push(...rootFiles.filter((item) => /\.(?:py|js|mjs|cjs|ts|tsx|rs|go|rb|java|html)$/.test(item) && !entryCandidates.includes(item)));
-  const configCandidates = rootFiles.filter((item) => /workspace|config|lock|test|spec/i.test(item));
-  const interesting = [...new Set([readmePath, manifestPath, ...entryCandidates.slice(0, 4), ...configCandidates.slice(0, 4)].filter(Boolean))];
-  const files = interesting.slice(0, 10).map((name) => ({ name, role: inferRole(name), evidence: name }));
-  const entrypoints = entryCandidates.slice(0, 3).length ? entryCandidates.slice(0, 3) : [manifestPath || readmePath || "README.md"].filter(Boolean);
+  const sourceExtensions = /\.(?:py|js|mjs|cjs|jsx|ts|tsx|rs|go|rb|java|kt|swift|c|cc|cpp|h|hpp|cs|php|html)$/i;
+  const entryCandidates = paths.filter((item) => entryPattern.test(pathBasename(item)) && sourceExtensions.test(item));
+  entryCandidates.push(...paths.filter((item) => sourceExtensions.test(item) && !entryCandidates.includes(item)));
+  const order = repositoryMap?.readOrder || [];
+  const orderPath = (kind) => order.find((item) => item.kind === kind)?.path || "";
+  const actualEntrypoints = [...new Set([orderPath("entrypoint"), orderPath("api"), ...entryCandidates.slice(0, 3)].filter(Boolean))].slice(0, 3);
+  const entrypoints = actualEntrypoints.length ? actualEntrypoints : [manifestPath || readmePath || "README.md"].filter(Boolean);
+  const orderedFiles = order.map((item) => ({ name: item.path, role: item.role || inferRole(item.path), evidence: item.path, why: item.why }));
+  const interesting = [...new Set([
+    readmePath,
+    manifestPath,
+    ...orderedFiles.map((item) => item.name),
+    ...entryCandidates.slice(0, 4),
+    ...paths.filter((item) => /workspace|config|test|spec/i.test(pathBasename(item))).slice(0, 4),
+  ].filter(Boolean))];
+  const files = interesting.slice(0, 12).map((name) => ({ name, role: inferRole(name), evidence: name }));
   if (!folders.length && !files.length) return demoData.architecture;
   const workingFolders = folders.filter((item) => !isSupportFolder(item.name));
   const sourceFiles = files.filter((item) => /source file|application script|application entry point|document entry point|presentation layer|server or request surface/i.test(item.role)).slice(0, 2);
-  const leadingPaths = [...new Set([...sourceFiles.map((item) => item.name), ...workingFolders.slice(0, 3).map((item) => item.name)])];
+  const leadingPaths = [...new Set([
+    orderPath("documentation"),
+    orderPath("manifest"),
+    orderPath("entrypoint"),
+    orderPath("implementation"),
+    ...sourceFiles.map((item) => item.name),
+    ...workingFolders.slice(0, 2).map((item) => item.name),
+  ].filter(Boolean))].slice(0, 5);
   const summary = leadingPaths.length
-    ? `${repository.language || "Mixed stack"} project whose visible working paths lead through ${naturalList(leadingPaths)}.`
-    : `${repository.language || "Mixed stack"} project whose work is visible mainly through its tracked files.`;
+    ? `${repository.language || "Mixed stack"} project with ${repositoryMap?.totalFiles ?? paths.length} indexed files. A first reading route runs through ${naturalList(leadingPaths)}.`
+    : `${repository.language || "Mixed stack"} project whose work is visible mainly through ${repositoryMap?.totalFiles ?? paths.length} tracked files.`;
   const mainFolder = workingFolders.find((item) => IMPLEMENTATION_FOLDERS.has(item.name.toLowerCase()));
   const resultFolder = workingFolders.find((item) => LEARNING_FOLDERS.has(item.name.toLowerCase()));
   return {
     summary,
     flow: [
-      { label: "Person or caller", role: "Where the request begins", detail: "A user, command, or another system gives the project something to do.", evidence: readmePath || manifestPath || "README.md" },
-      { label: "Entry point", role: "The front door", detail: "A tracked source file or command surface is the clearest visible boundary into the project.", evidence: entrypoints[0] || manifestPath || readmePath || "README.md" },
-      { label: "Main implementation", role: "Where the work happens", detail: "The most legible implementation-named area coordinates the project's main behavior.", evidence: mainFolder?.evidence || entrypoints[0] || readmePath || "README.md" },
-      { label: "Supporting tools", role: "Capabilities the project borrows", detail: "Dependencies and configuration fill in the parts the repository does not build alone.", evidence: manifestPath || files[0]?.name || readmePath || "README.md" },
-      { label: "Result", role: "What comes back", detail: "Documentation, examples, tests, or the public description show the project's output.", evidence: resultFolder?.evidence || readmePath || manifestPath || "README.md" },
+      { label: "Person or caller", role: "Where the request begins", detail: "Start with the public promise, then follow the files that translate it into a working boundary.", evidence: readmePath || orderPath("documentation") || "README.md" },
+      { label: "Entry point", role: "The front door", detail: "The reading route identifies a tracked source or command surface before descending into helpers.", evidence: orderPath("entrypoint") || entrypoints[0] || manifestPath || readmePath || "README.md" },
+      { label: "Main implementation", role: "Where the work happens", detail: "The implementation trail is selected from the recursive tree, not just a top-level folder name.", evidence: orderPath("implementation") || mainFolder?.evidence || entrypoints[0] || readmePath || "README.md" },
+      { label: "Supporting tools", role: "Capabilities the project borrows", detail: "The manifest and configuration make the project's dependency and build boundaries visible.", evidence: manifestPath || orderPath("manifest") || files[0]?.name || readmePath || "README.md" },
+      { label: "Result", role: "What comes back", detail: "Examples, documentation, and checks show what the project expects a usable result to look like.", evidence: orderPath("example") || orderPath("test") || resultFolder?.evidence || readmePath || manifestPath || "README.md" },
     ],
     folders,
     files,
     entrypoints,
-    sourceNote: "Roles are inferred from tracked names and paths; each item links back to the file or directory that supports the reading.",
+    sourceNote: repositoryMap
+      ? `Roles are inferred from ${repositoryMap.totalFiles} recursively indexed files and ${repositoryMap.totalDirectories} directories; the suggested route never claims to have executed the project.`
+      : "Roles are inferred from tracked names and paths; each item links back to the file or directory that supports the reading.",
   };
 }
+
+demoData.repositoryMap = buildRepositoryMap([
+  "README.md",
+  "package.json",
+  "pnpm-workspace.yaml",
+  "CONTRIBUTING.md",
+  ".github/workflows/ci.yml",
+  "packages/vite/package.json",
+  "packages/vite/src/node/cli.ts",
+  "packages/vite/src/node/server/index.ts",
+  "packages/vite/src/node/plugin.ts",
+  "packages/vite/src/node/optimizer/index.ts",
+  "packages/vite/src/client/client.ts",
+  "packages/vite/src/shared/hmr.ts",
+  "packages/plugin-react/src/index.ts",
+  "packages/plugin-vue/src/index.ts",
+  "docs/guide/index.md",
+  "docs/guide/features.md",
+  "docs/guide/api-plugin.md",
+  "playground/vue/index.html",
+  "playground/vue/src/main.ts",
+  "playground/vue/src/App.vue",
+  "packages/vite/src/node/__tests__/plugins/index.spec.ts",
+  "packages/vite/src/node/__tests__/server/index.spec.ts",
+  "packages/vite/src/node/__tests__/config.spec.ts",
+  "packages/vite/src/types/index.d.ts",
+  "packages/vite/client.d.ts",
+  "scripts/build.js",
+  "scripts/release.js",
+  "LICENSE",
+], { branch: "main" });
 
 function clipSentence(value, limit = 210) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
@@ -965,7 +1198,7 @@ function buildBrowserAnalysis(data, commits = [], releases = [], coverage = "") 
   };
 }
 
-function buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath, readmeText = "", tree = [], historyMeta = {}) {
+function buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath, readmeText = "", tree = [], historyMeta = {}, repositoryMap = null) {
   const repoName = `${repository.owner.login} / ${repository.name}`;
   const language = repository.language || Object.keys(languages)[0] || "Mixed stack";
   const days = groupCommitsByDay(commits);
@@ -984,7 +1217,8 @@ function buildLiveData(repo, repository, commits, releases, contributors, langua
     issues: repository.open_issues_count,
     contributors,
     orientation: buildOrientation(repository, readmeText),
-    architecture: buildArchitecture(tree, manifestPath, readmeText, repository),
+    architecture: buildArchitecture(tree, manifestPath, readmeText, repository, repositoryMap),
+    repositoryMap,
     dependencies,
     manifestPath,
     historyCoverage: historyMeta.coverage || "",
@@ -1001,13 +1235,15 @@ function buildLiveData(repo, repository, commits, releases, contributors, langua
 }
 
 async function fetchMuseumData(repo) {
-  const [repository, commitPage, releases, contributors, languages, readmeResponse, tree] = await Promise.all([
-    githubFetch(`/repos/${repo}`),
+  const repository = await githubFetch(`/repos/${repo}`);
+  const branch = repository.default_branch || "main";
+  const [commitPage, releases, contributors, languages, readmeResponse, recursiveTree, rootContents] = await Promise.all([
     githubFetchPage(`/repos/${repo}/commits?per_page=100`),
     githubFetch(`/repos/${repo}/releases?per_page=8`),
     githubFetch(`/repos/${repo}/contributors?per_page=6`),
     githubFetch(`/repos/${repo}/languages`),
     githubFetch(`/repos/${repo}/readme`).catch(() => null),
+    githubFetch(`/repos/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`).catch(() => null),
     githubFetch(`/repos/${repo}/contents/`).catch(() => null),
   ]);
   const latestCommits = Array.isArray(commitPage.data) ? commitPage.data : [];
@@ -1032,8 +1268,8 @@ async function fetchMuseumData(repo) {
     return true;
   }).sort((a, b) => commitDateValue(b).localeCompare(commitDateValue(a)));
   const manifestCandidates = ["package.json", "pyproject.toml", "requirements.txt", "Cargo.toml", "go.mod"];
-  const visibleRootFiles = new Set(Array.isArray(tree) ? tree.map((item) => item?.name).filter(Boolean) : []);
-  const manifests = Array.isArray(tree)
+  const visibleRootFiles = new Set(Array.isArray(rootContents) ? rootContents.map((item) => item?.name).filter(Boolean) : []);
+  const manifests = Array.isArray(rootContents)
     ? manifestCandidates.filter((manifest) => visibleRootFiles.has(manifest))
     : manifestCandidates;
   let dependencies = [];
@@ -1044,8 +1280,16 @@ async function fetchMuseumData(repo) {
     if (dependencies.length) { manifestPath = manifest; break; }
   }
   const readmeText = decodeBase64(readmeResponse?.content);
-  const treeItems = Array.isArray(tree) ? tree.map((item) => item.type === "dir" ? `${item.name}/.directory` : item.name).filter(Boolean) : [];
-  return buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath, readmeText, treeItems, { coverage });
+  const recursiveEntries = Array.isArray(recursiveTree?.tree)
+    ? recursiveTree.tree.filter((item) => item?.path && ["blob", "tree"].includes(item.type)).map((item) => ({ path: item.path, type: item.type === "tree" ? "directory" : "file", size: item.size }))
+    : [];
+  const fallbackEntries = Array.isArray(rootContents)
+    ? rootContents.map((item) => ({ path: item.name, type: item.type === "dir" ? "directory" : "file", size: item.size })).filter((item) => item.path)
+    : [];
+  const repositoryMap = buildRepositoryMap(recursiveEntries.length ? recursiveEntries : fallbackEntries, { branch, truncated: Boolean(recursiveTree?.truncated), projectName: repo.split("/").at(-1) });
+  const architecturePaths = recursiveEntries.filter((item) => item.type === "file").map((item) => item.path);
+  const treeItems = architecturePaths.length ? architecturePaths : fallbackEntries.map((item) => item.type === "directory" ? `${item.path}/.directory` : item.path);
+  return buildLiveData(repo, repository, commits, releases, contributors, languages, dependencies, manifestPath, readmeText, treeItems, { coverage }, repositoryMap);
 }
 
 function setLoading(isLoading) {
@@ -1241,6 +1485,298 @@ function renderArchitectureSpotlight(data) {
   el("architecture-spotlight-title").textContent = item.label || "Project part";
   el("architecture-spotlight-copy").textContent = `${item.role || "Visible role"}. ${item.detail || "This area contributes to the visitor path."}`;
   el("architecture-spotlight-source").href = evidenceHref(data, item.evidence);
+}
+
+function resetRepositoryExplorer() {
+  state.explorerAbortController?.abort();
+  state.explorerAbortController = null;
+  state.explorerQuery = "";
+  state.explorerFilter = "all";
+  state.explorerPath = "";
+  state.explorerPreview = null;
+  state.explorerPreviewState = "idle";
+  state.explorerRequestId += 1;
+  const search = el("repo-map-search");
+  if (search) search.value = "";
+}
+
+function repositoryMapEntry(map, path) {
+  return (map?.entries || []).find((entry) => entry.path === path) || null;
+}
+
+function repositoryReadOrderItem(map, path) {
+  return (map?.readOrder || []).find((item) => item.path === path) || null;
+}
+
+function categoryLabel(category) {
+  return FILTER_LABELS[category] || String(category || "path").replace(/^./, (character) => character.toUpperCase());
+}
+
+function formatFileSize(size) {
+  if (!Number.isFinite(size) || size < 0) return "size not indexed";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function githubRawUrl(data, path) {
+  if (!data?.htmlUrl?.startsWith("https://github.com/") || !path) return "";
+  const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
+  const branch = String(data.defaultBranch || "main").split("/").map((part) => encodeURIComponent(part)).join("/");
+  return `https://raw.githubusercontent.com/${data.repo}/${branch}/${encodedPath}`;
+}
+
+function previewFallbackReason(entry) {
+  if (!entry || entry.type !== "file") return "";
+  const basename = pathBasename(entry.path).toLowerCase();
+  if (PREVIEW_BLOCKED_EXTENSIONS.has(pathExtension(entry.path))) return "This looks like a binary or media file, so the museum will not pretend it is readable text.";
+  if (LOCK_FILES.has(basename)) return "Lock files are intentionally left out of the reading view because they are generated dependency snapshots.";
+  if (/\.min\.(?:js|css)$/.test(basename)) return "Minified files are skipped because they obscure the source structure rather than explain it.";
+  if (Number(entry.size) > 2_000_000) return `This file is ${formatFileSize(entry.size)}. Open it on GitHub instead of loading an oversized preview.`;
+  return "";
+}
+
+function looksBinaryText(text) {
+  const sample = String(text || "").slice(0, 4000);
+  if (sample.includes("\u0000")) return true;
+  const controls = [...sample].filter((character) => {
+    const code = character.charCodeAt(0);
+    return code < 9 || (code > 13 && code < 32);
+  }).length;
+  return sample.length > 0 && controls / sample.length > 0.03;
+}
+
+function renderRepositoryRoute(data) {
+  const map = data.repositoryMap;
+  const route = map?.readOrder || [];
+  el("repo-map-route-note").textContent = map?.truncated
+    ? "A suggested route across the partial tree returned by GitHub."
+    : "A short evidence trail from purpose to implementation. Select a stop to preview the file.";
+  el("repo-read-order").replaceChildren(...route.map((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `repo-route-stop${item.path === state.explorerPath ? " is-active" : ""}`;
+    button.setAttribute("aria-pressed", String(item.path === state.explorerPath));
+    const number = document.createElement("span"); number.className = "repo-route-number"; number.textContent = String(index + 1).padStart(2, "0");
+    const body = document.createElement("span"); body.className = "repo-route-copy";
+    const role = document.createElement("small"); role.textContent = item.role || categoryLabel(item.kind);
+    const path = document.createElement("strong"); path.textContent = item.path;
+    const why = document.createElement("em"); why.textContent = item.why || "A tracked clue in the first-reading route.";
+    body.append(role, path, why); button.append(number, body);
+    button.addEventListener("click", () => selectRepositoryPath(data, item.path));
+    return button;
+  }));
+}
+
+function repositoryFilterEntries(map) {
+  const query = state.explorerQuery.trim().toLowerCase();
+  return (map?.entries || []).filter((entry) => {
+    if (state.explorerFilter !== "all" && entry.category !== state.explorerFilter) return false;
+    if (!query) return true;
+    const order = repositoryReadOrderItem(map, entry.path);
+    return `${entry.path} ${entry.role || ""} ${entry.category || ""} ${order?.role || ""} ${order?.why || ""}`.toLowerCase().includes(query);
+  });
+}
+
+function renderRepositoryFilters(data) {
+  const map = data.repositoryMap;
+  const counts = new Map();
+  for (const entry of map?.entries || []) counts.set(entry.category, (counts.get(entry.category) || 0) + 1);
+  const preferred = ["all", "code", "documentation", "manifest", "test", "example", "config", "automation", "directory", "generated", "asset"];
+  const categories = preferred.filter((category) => category === "all" || counts.get(category));
+  el("repo-map-filters").replaceChildren(...categories.map((category) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = `repo-filter${state.explorerFilter === category ? " is-active" : ""}`; button.dataset.filter = category;
+    button.setAttribute("aria-pressed", String(state.explorerFilter === category));
+    button.append(document.createTextNode(categoryLabel(category)), Object.assign(document.createElement("span"), { textContent: String(category === "all" ? map?.entries?.length || 0 : counts.get(category) || 0) }));
+    button.addEventListener("click", () => {
+      state.explorerFilter = category;
+      document.querySelectorAll(".repo-filter").forEach((item) => { const active = item.dataset.filter === category; item.classList.toggle("is-active", active); item.setAttribute("aria-pressed", String(active)); });
+      renderRepositoryList(data);
+    });
+    return button;
+  }));
+}
+
+function renderRepositoryList(data) {
+  const map = data.repositoryMap;
+  const matches = repositoryFilterEntries(map);
+  const visible = matches.slice(0, 80);
+  el("repo-map-count").textContent = matches.length === (map?.entries?.length || 0)
+    ? `${formatNumber(matches.length)} path${matches.length === 1 ? "" : "s"}`
+    : `${formatNumber(matches.length)} match${matches.length === 1 ? "" : "es"}`;
+  if (!matches.length) {
+    el("repo-map-list").replaceChildren(Object.assign(document.createElement("p"), { className: "repo-map-empty", textContent: "No indexed path matches this reading filter. Try a broader file name or folder." }));
+    return;
+  }
+  el("repo-map-list").replaceChildren(...visible.map((entry) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = `repo-entry${entry.path === state.explorerPath ? " is-active" : ""}`; button.setAttribute("aria-pressed", String(entry.path === state.explorerPath));
+    const icon = document.createElement("span"); icon.className = `repo-entry-icon is-${entry.category}`; icon.textContent = entry.type === "directory" ? "▱" : "◇";
+    const copy = document.createElement("span"); copy.className = "repo-entry-copy";
+    const path = document.createElement("strong"); path.textContent = entry.path;
+    const meta = document.createElement("small"); meta.textContent = entry.type === "directory" ? `${formatNumber(entry.count)} nested file${entry.count === 1 ? "" : "s"}` : `${categoryLabel(entry.category)} · ${formatFileSize(entry.size)}`;
+    copy.append(path, meta); button.append(icon, copy);
+    button.addEventListener("click", () => selectRepositoryPath(data, entry.path));
+    return button;
+  }));
+  if (matches.length > visible.length) {
+    const more = document.createElement("p"); more.className = "repo-map-more"; more.textContent = `Showing the first ${visible.length} of ${formatNumber(matches.length)} matches. Narrow the search to inspect the rest.`;
+    el("repo-map-list").append(more);
+  }
+}
+
+function repositoryPreviewShell(data, entry) {
+  const map = data.repositoryMap;
+  const order = repositoryReadOrderItem(map, entry.path);
+  const article = document.createElement("article"); article.className = "repo-preview-card";
+  const header = document.createElement("div"); header.className = "repo-preview-header";
+  const heading = document.createElement("div");
+  const kicker = document.createElement("p"); kicker.className = "repo-preview-kicker"; kicker.textContent = order?.role || categoryLabel(entry.category);
+  const title = document.createElement("h5"); title.textContent = entry.path;
+  heading.append(kicker, title);
+  const type = document.createElement("span"); type.className = "repo-preview-type"; type.textContent = entry.type === "directory" ? "FOLDER" : categoryLabel(entry.category).toUpperCase();
+  header.append(heading, type);
+  const why = document.createElement("p"); why.className = "repo-preview-why"; why.textContent = order?.why || (entry.type === "directory" ? "This folder is part of the indexed structure. Filtering by its path reveals the files inside." : "This tracked path appeared in the repository map; its specific role remains a conservative name-based reading.");
+  const facts = document.createElement("div"); facts.className = "repo-preview-facts";
+  const extensionLabel = entry.extension && entry.extension !== "(none)" ? entry.extension : "no extension";
+  facts.append(Object.assign(document.createElement("span"), { textContent: entry.type === "directory" ? `${formatNumber(entry.count)} nested files` : formatFileSize(entry.size) }), Object.assign(document.createElement("span"), { textContent: entry.type === "directory" ? "directory" : extensionLabel }), Object.assign(document.createElement("span"), { textContent: map.truncated ? "partial tree" : "recursive tree" }));
+  const content = document.createElement("div"); content.className = "repo-preview-content"; content.id = "repo-preview-content";
+  const actions = document.createElement("div"); actions.className = "repo-preview-actions";
+  if (/^https:\/\/github\.com\//.test(data.htmlUrl || "")) {
+    const github = document.createElement("a"); github.href = evidenceHref(data, entry.path); github.target = "_blank"; github.rel = "noreferrer"; github.textContent = "Open source on GitHub ↗"; actions.append(github);
+  } else {
+    actions.append(Object.assign(document.createElement("span"), { className: "repo-preview-local", textContent: "Tracked local path · no public GitHub link" }));
+  }
+  const rawUrl = githubRawUrl(data, entry.path);
+  if (rawUrl && entry.type === "file") { const raw = document.createElement("a"); raw.href = rawUrl; raw.target = "_blank"; raw.rel = "noreferrer"; raw.textContent = "View raw ↗"; actions.append(raw); }
+  article.append(header, why, facts, content, actions);
+  return article;
+}
+
+function renderRepositoryPreview(data) {
+  const container = el("repo-preview");
+  const map = data.repositoryMap;
+  if (!container || !map) return;
+  const entry = repositoryMapEntry(map, state.explorerPath) || repositoryMapEntry(map, map.readOrder?.[0]?.path) || map.entries?.find((item) => item.type === "file") || map.entries?.[0];
+  const status = el("repo-preview-status");
+  if (!entry) {
+    container.replaceChildren(Object.assign(document.createElement("p"), { className: "repo-map-empty", textContent: "No file metadata is available in this collection." }));
+    if (status) status.textContent = "No file metadata is available in this collection.";
+    return;
+  }
+  if (!state.explorerPath) state.explorerPath = entry.path;
+  container.setAttribute("aria-busy", String(state.explorerPreviewState === "loading"));
+  if (status) {
+    if (entry.type === "directory") status.textContent = `Folder ${entry.path} selected with ${formatNumber(entry.count)} nested files.`;
+    else if (state.explorerPreviewState === "loading") status.textContent = `Loading preview for ${entry.path}.`;
+    else if (state.explorerPreviewState === "ready" && state.explorerPreview?.text) status.textContent = `Preview ready for ${entry.path}: ${formatNumber(state.explorerPreview.lines)} lines${state.explorerPreview.truncated ? ", shortened" : ""}.`;
+    else if (state.explorerPreviewState === "error") status.textContent = `Preview failed for ${entry.path}. The source link is still available.`;
+    else status.textContent = `A source preview is unavailable for ${entry.path}. The source link is still available.`;
+  }
+  const article = repositoryPreviewShell(data, entry);
+  const content = article.querySelector(".repo-preview-content");
+  if (entry.type === "directory") {
+    const note = document.createElement("div"); note.className = "repo-preview-note";
+    const title = document.createElement("strong"); title.textContent = "This is a room, not a readable file.";
+    const copy = document.createElement("p"); copy.textContent = `The recursive index counts ${formatNumber(entry.count)} files beneath this folder. Use the folder search to narrow the atlas.`;
+    const filter = document.createElement("button"); filter.type = "button"; filter.textContent = `Show ${entry.path}/ contents`;
+    filter.addEventListener("click", () => { state.explorerFilter = "all"; state.explorerQuery = `${entry.path}/`; el("repo-map-search").value = state.explorerQuery; renderRepositoryFilters(data); renderRepositoryList(data); el("repo-map-search").focus(); });
+    note.append(title, copy, filter); content.replaceChildren(note);
+  } else if (state.explorerPreviewState === "loading") {
+    const loading = document.createElement("div"); loading.className = "repo-preview-loading";
+    for (let index = 0; index < 6; index += 1) loading.append(document.createElement("i"));
+    content.replaceChildren(loading);
+  } else if (state.explorerPreviewState === "fallback" || state.explorerPreviewState === "error") {
+    const note = document.createElement("div"); note.className = "repo-preview-note";
+    const title = document.createElement("strong"); title.textContent = state.explorerPreviewState === "error" ? "The preview could not be loaded." : "Open this file at the source.";
+    const copy = document.createElement("p"); copy.textContent = state.explorerPreview?.message || "This file is outside the safe text-preview boundary.";
+    note.append(title, copy); content.replaceChildren(note);
+  } else if (state.explorerPreviewState === "ready" && state.explorerPreview?.text) {
+    const pre = document.createElement("pre"); pre.className = "repo-preview-code"; pre.tabIndex = 0;
+    const code = document.createElement("code"); code.textContent = state.explorerPreview.text; pre.append(code);
+    const caption = document.createElement("p"); caption.className = "repo-preview-caption"; caption.textContent = `${formatNumber(state.explorerPreview.lines)} lines${state.explorerPreview.truncated ? " · preview shortened" : ""}${state.explorerPreview.embedded ? " · embedded by the local Agent" : ""}`;
+    content.replaceChildren(pre, caption);
+  } else {
+    const note = document.createElement("div"); note.className = "repo-preview-note";
+    note.append(Object.assign(document.createElement("strong"), { textContent: "A text preview can be read here." }), Object.assign(document.createElement("p"), { textContent: "Select this file again to load its readable contents, or open the GitHub source." }));
+    content.replaceChildren(note);
+  }
+  container.replaceChildren(article);
+}
+
+function setRepositoryPreview(data, previewState, preview = null) {
+  state.explorerPreviewState = previewState;
+  state.explorerPreview = preview;
+  if (state.data === data) renderRepositoryPreview(data);
+}
+
+async function loadRepositoryPreview(data, entry, requestId) {
+  const order = repositoryReadOrderItem(data.repositoryMap, entry.path);
+  const embedded = entry.preview || order?.preview;
+  if (embedded) {
+    const text = String(embedded).slice(0, 60_000);
+    setRepositoryPreview(data, "ready", { text, lines: text.split("\n").length, truncated: String(embedded).length > text.length, embedded: true });
+    return;
+  }
+  const blocked = previewFallbackReason(entry);
+  if (blocked) { setRepositoryPreview(data, "fallback", { message: blocked }); return; }
+  const rawUrl = githubRawUrl(data, entry.path);
+  if (!rawUrl) { setRepositoryPreview(data, "fallback", { message: "This collection does not expose a public GitHub raw URL. The tracked path is still available through the source link below." }); return; }
+  state.explorerAbortController?.abort();
+  const controller = new AbortController(); state.explorerAbortController = controller;
+  try {
+    const response = await fetch(rawUrl, { signal: controller.signal, headers: { Accept: "text/plain" } });
+    if (!response.ok) throw new Error(`GitHub raw returned ${response.status}.`);
+    const text = await response.text();
+    if (looksBinaryText(text)) { setRepositoryPreview(data, "fallback", { message: "This file appears to contain binary content. Open it at the source instead." }); return; }
+    if (requestId !== state.explorerRequestId || state.explorerPath !== entry.path) return;
+    const shortened = text.slice(0, 60_000);
+    setRepositoryPreview(data, "ready", { text: shortened, lines: shortened.split("\n").length, truncated: text.length > shortened.length, embedded: false });
+  } catch (error) {
+    if (error.name === "AbortError" || requestId !== state.explorerRequestId) return;
+    setRepositoryPreview(data, "error", { message: `${error.message || "GitHub raw did not respond."} The source link below still points to the tracked path.` });
+  }
+}
+
+function selectRepositoryPath(data, path) {
+  const entry = repositoryMapEntry(data.repositoryMap, path);
+  if (!entry) return;
+  state.explorerPath = entry.path;
+  state.explorerPreview = null;
+  state.explorerPreviewState = entry.type === "directory" ? "ready" : "loading";
+  state.explorerRequestId += 1;
+  const requestId = state.explorerRequestId;
+  renderRepositoryRoute(data);
+  renderRepositoryList(data);
+  renderRepositoryPreview(data);
+  if (entry.type !== "directory") loadRepositoryPreview(data, entry, requestId);
+}
+
+function renderRepositoryExplorer(data) {
+  const explorer = el("repo-explorer");
+  const map = data.repositoryMap;
+  if (!explorer || !map?.entries?.length) { if (explorer) explorer.hidden = true; return; }
+  explorer.hidden = false;
+  el("repo-map-metrics").textContent = `${formatNumber(map.totalFiles)} files · ${formatNumber(map.totalDirectories)} folders · ${formatNumber(map.extensions?.length || 0)} extensions`;
+  const partial = el("repo-map-partial");
+  partial.hidden = !map.truncated;
+  partial.textContent = map.truncated ? `Partial map: ${map.coverageNote || "GitHub stopped returning the recursive tree at its size limit."}` : "";
+  const initialPath = state.explorerPath || map.readOrder?.[0]?.path || map.entries.find((entry) => entry.type === "file")?.path;
+  const entryChanged = initialPath !== state.explorerPath;
+  if (initialPath) state.explorerPath = initialPath;
+  if (initialPath && entryChanged) {
+    state.explorerPreview = null;
+    state.explorerPreviewState = "loading";
+  }
+  renderRepositoryRoute(data);
+  renderRepositoryFilters(data);
+  renderRepositoryList(data);
+  renderRepositoryPreview(data);
+  if (initialPath && entryChanged) {
+    state.explorerRequestId += 1;
+    const entry = repositoryMapEntry(map, initialPath);
+    if (entry?.type === "directory") state.explorerPreviewState = "ready";
+    else if (entry) loadRepositoryPreview(data, entry, state.explorerRequestId);
+  }
 }
 
 function renderHistoryPhaseDetail(data, phases) {
@@ -1748,6 +2284,8 @@ function renderScore(data) {
 
 function render(data) {
   if (!data.learning) data.learning = buildLearning(data);
+  const isNewCollection = state.data !== data || state.currentRepo !== data.repo;
+  if (isNewCollection) resetRepositoryExplorer();
   state.data = data;
   state.currentRepo = data.repo;
   state.visitedRooms = new Set(["hall-overview"]);
@@ -1771,7 +2309,7 @@ function render(data) {
   el("fact-pushed").textContent = relativeDate(data.pushedAt);
   el("fact-language").textContent = data.language || "Mixed stack";
   el("fact-license").textContent = data.license || "Unspecified";
-  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
+  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderRepositoryExplorer(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
   el("score-caption").textContent = `Commit pulse / ${data.commits?.length || 0} markers`;
 }
 
@@ -1871,6 +2409,13 @@ document.addEventListener("DOMContentLoaded", () => {
     else { el("repo-input").value = queryRepo; loadRepo(parseRepo(queryRepo)); }
   }
   el("repo-form").addEventListener("submit", (event) => { event.preventDefault(); const repo = parseRepo(el("repo-input").value); if (!repo) { showToast("Enter a GitHub owner/repository first."); el("repo-input").focus(); return; } loadRepo(repo); });
+  el("repo-map-search").addEventListener("input", (event) => { state.explorerQuery = event.target.value; renderRepositoryList(state.data); });
+  el("repo-map-search").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const first = el("repo-map-list").querySelector(".repo-entry");
+    if (first) first.click();
+  });
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".understand-button");
     if (button) toggleRoomUnderstanding(button.dataset.room);

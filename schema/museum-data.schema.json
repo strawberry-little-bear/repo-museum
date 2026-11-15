@@ -14,6 +14,73 @@
         "label": { "type": "string" },
         "claim": { "type": "string" }
       }
+    },
+    "repositoryMap": {
+      "type": "object",
+      "required": ["root", "branch", "truncated", "totalFiles", "totalDirectories", "indexedEntries", "extensions", "directories", "readOrder", "entries", "coverageNote"],
+      "properties": {
+        "root": { "type": "string" },
+        "branch": { "type": "string" },
+        "truncated": { "type": "boolean" },
+        "totalFiles": { "type": "integer", "minimum": 0 },
+        "totalDirectories": { "type": "integer", "minimum": 0 },
+        "indexedEntries": { "type": "integer", "minimum": 0 },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["extension", "count"],
+            "properties": {
+              "extension": { "type": "string" },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "directories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "count"],
+            "properties": {
+              "path": { "type": "string" },
+              "count": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "readOrder": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "role", "why", "kind", "evidence"],
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "type": "string" },
+              "why": { "type": "string" },
+              "kind": { "type": "string" },
+              "evidence": { "type": "string" },
+              "preview": { "type": "string", "maxLength": 60000 }
+            }
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "type", "category", "role"],
+            "properties": {
+              "path": { "type": "string" },
+              "type": { "enum": ["file", "directory"] },
+              "category": { "type": "string" },
+              "role": { "type": "string" },
+              "extension": { "type": "string" },
+              "size": { "type": ["integer", "null"] },
+              "count": { "type": "integer", "minimum": 0 },
+              "preview": { "type": "string", "maxLength": 60000 }
+            }
+          }
+        },
+        "coverageNote": { "type": "string" }
+      }
     }
   },
   "properties": {
@@ -22,6 +89,7 @@
     "htmlUrl": { "type": "string" },
     "events": { "type": "array", "items": { "type": "object" } },
     "dependencies": { "type": "array", "items": { "type": "object" } },
+    "repositoryMap": { "$ref": "#/$defs/repositoryMap" },
     "learning": {
       "type": "object",
       "required": ["promise", "rooms"],
