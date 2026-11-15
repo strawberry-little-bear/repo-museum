@@ -285,6 +285,25 @@
         "distinctDates": { "type": "integer", "minimum": 0 },
         "excludedSameDayEvents": { "type": "integer", "minimum": 0 },
         "coverage": { "type": "string" },
+        "discovery": {
+          "type": "object",
+          "required": ["label", "title", "summary", "whyItMatters", "mode", "evidence", "route", "boundary"],
+          "properties": {
+            "label": { "type": "string" },
+            "title": { "type": "string" },
+            "summary": { "type": "string" },
+            "whyItMatters": { "type": "string" },
+            "mode": { "enum": ["observed", "inferred", "mixed"] },
+            "evidence": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": { "$ref": "#/$defs/evidence" }
+            },
+            "route": { "type": "string" },
+            "boundary": { "type": "string" }
+          }
+        },
         "arc": {
           "type": "array",
           "minItems": 0,

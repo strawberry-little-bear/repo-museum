@@ -173,6 +173,25 @@
 
             <div class="stat-strip" id="stat-strip"></div>
 
+            <section class="field-discovery" id="field-discovery" aria-labelledby="field-discovery-title">
+              <div class="field-discovery-rail">
+                <span class="field-discovery-index">FIELD NOTE / 01</span>
+                <span class="field-discovery-mode" id="field-discovery-mode">AGENT READING · MIXED</span>
+              </div>
+              <div class="field-discovery-main">
+                <p class="subsection-label">What the Agent found</p>
+                <h4 id="field-discovery-title">A cross-file discovery is being assembled.</h4>
+                <p class="field-discovery-summary" id="field-discovery-summary">The museum is comparing the repository's public entrance, working parts, and evidence boundary.</p>
+                <p class="field-discovery-why" id="field-discovery-why"></p>
+                <div class="field-discovery-evidence" id="field-discovery-evidence" aria-label="Evidence for the Agent discovery"></div>
+                <div class="field-discovery-footer">
+                  <p class="field-discovery-boundary" id="field-discovery-boundary">Structural evidence only; no runtime claim is made.</p>
+                  <button type="button" class="field-discovery-route" id="field-discovery-route">Open the evidence route <span aria-hidden="true">↗</span></button>
+                </div>
+              </div>
+              <div class="field-discovery-stamp" aria-hidden="true"><span>READ</span><strong>01</strong><span>VERIFY</span></div>
+            </section>
+
             <div class="exhibition-layout">
               <aside class="exhibition-index" aria-label="Exhibition index">
                 <p class="index-title">Floor plan</p>
@@ -308,6 +327,14 @@
                   </div>
                   <div class="opera-copy"><p>Then look at the project’s current pulse. It is a trace of activity, not a quality score.</p><button class="secondary-button" id="opera-toggle" type="button"><span id="opera-toggle-icon">▶</span><span id="opera-toggle-label">Play the pulse</span></button></div>
                   <div class="score-stage"><div class="score-axis"><span>LOUD</span><span>QUIET</span></div><div class="score-bars" id="score-bars"></div><div class="score-dates" id="score-dates"></div></div>
+                  <div class="score-spotlight" id="score-spotlight" aria-live="polite">
+                    <span class="score-spotlight-index" id="score-spotlight-index">Pulse 01</span>
+                    <div class="score-spotlight-copy">
+                      <strong id="score-spotlight-title">Select a pulse marker</strong>
+                      <p id="score-spotlight-detail">Each marker groups same-day commits and links back to the visible record.</p>
+                    </div>
+                    <a id="score-spotlight-source" href="#" target="_blank" rel="noreferrer">Open commit evidence ↗</a>
+                  </div>
                   <div class="player-controls"><button class="icon-button" id="mute-button" type="button" title="Mute pulse" aria-label="Mute pulse">♫</button><span id="score-caption">Commit pulse / 12 markers</span><label class="speed-control">Speed <select id="speed-select"><option value="1">1×</option><option value="1.5">1.5×</option><option value="0.7">0.7×</option></select></label></div>
                   <div class="final-map"><p class="subsection-label">Leave with a map</p><p id="final-summary">You have traced the project from purpose to present-day motion.</p><button type="button" class="room-next" data-next="hall-overview">Walk the collection again <span>↺</span></button></div>
                 </section>

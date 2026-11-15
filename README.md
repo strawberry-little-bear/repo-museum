@@ -14,7 +14,9 @@ It is a static, browser-first experience with a guided route through a connected
 - **Blueprint room**: an Agent or browser reading of the parts that make that use-path possible, anchored by a searchable Repository Atlas and evidence-backed cross-file investigations.
 - **History hall**: commits grouped by natural day into an evidence-backed origin / turning point / now arc. A busy day appears once, and selecting a chapter reveals its reason, lesson, sampling coverage, and ordered evidence trail.
 - **Ecosystem room**: direct dependencies surfaced from common manifest files. It disappears when the public scan finds no specimens.
-- **Exit workshop**: three questions that let a visitor repeat the project's story without memorising a metric list, with immediate feedback and room completion, followed by a small commit pulse.
+- **Exit workshop**: three questions that let a visitor repeat the project's story without memorising a metric list, with immediate feedback and room completion, followed by an interactive commit pulse. Each pulse marker opens the commit or grouped-day evidence behind that sound.
+
+Before the room index, **What the Agent found** presents one cross-file field note rather than another dashboard. The note names a concrete discovery, explains why it matters, indexes up to five tracked-file sources, states the evidence boundary, and opens the matching Repository Atlas investigation. The local Agent emits this as `analysis.discovery`; older collections and live browser scans fall back to the strongest supported investigation, and the entire field note stays hidden when there is no defensible finding.
 
 The visitor can switch between **Guided tour** and **Floor plan**. `Prev` / `Next` controls, clickable room indexes, and the floor plan all use the same room order. Room changes use a short transition card and a quiet spatial chime; the chime respects the existing mute control and reduced-motion preferences skip the transition animation. Claims remain linked to public GitHub evidence or the local Agent artifact. When a repository has no readable dependency manifest, the ecosystem room is removed from the route instead of presenting an empty exhibit.
 
@@ -79,7 +81,7 @@ mkdir -p collections
 cp .repo-museum/museum.json collections/repo-museum.json
 ```
 
-The Pages workflow regenerates that same path from a full-history checkout during every deployment, so the hosted demo reflects the latest tracked history without committing a mutable local artifact.
+The repository intentionally carries `collections/repo-museum.json` as a reviewable Agent artifact and built-in fallback for Repo Museum itself. The Pages workflow still regenerates that collection from a full-history checkout at deploy time, overwrites the staged copy with the fresh Agent output, and publishes it alongside the renderer. Committing the baseline keeps the public demo inspectable in Git; deployment does not depend on a mutable untracked file.
 
 The reusable skill instructions live in `skills/repo-museum/SKILL.md`. The renderer contract, including the optional `repositoryMap`, is documented in `schema/museum-data.schema.json`. Artifacts created before the atlas remain valid; when `repositoryMap` is absent, the optional Atlas exhibit is hidden. Artifacts with a `repositoryMap` but without `readingGuide` remain valid too; the Atlas builds the structural lens from the preview at runtime.
 
@@ -91,7 +93,7 @@ Use a GitHub owner/repository or full GitHub URL, for example:
 https://strawberry-little-bear.github.io/repo-museum/?repo=vitejs%2Fvite
 ```
 
-The share button copies the current collection URL. Built-in Agent collections share the artifact path; live scans share the repository identity. Only public repositories are supported in this first release. Anonymous GitHub API limits and large repository sizes can affect the amount of evidence available to a live browser scan; the recovery form can retry with a tab-local read-only token.
+The share button copies the current collection URL. Built-in Agent collections share the artifact path; live scans share the repository identity. For `strawberry-little-bear/repo-museum`, the browser first loads the committed Agent collection instead of spending anonymous GitHub API calls on a live scan. Only public repositories are supported in this first release. Anonymous GitHub API limits and large repository sizes can affect the amount of evidence available to a live browser scan; the recovery form can retry with a tab-local read-only token.
 
 The hosted project collection is available directly at:
 
@@ -117,6 +119,6 @@ schema/          shared museum data contract
 
 ## Product boundary
 
-The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `repositoryMap`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `repositoryMap.readOrder[].readingGuide` turns a suggested route into a file-level reading lens with declaration and import line evidence. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into one discovery with an ordered evidence trail; `analysis.phases` explains the grouped natural-day arc and why its turning point was selected; `analysis.turningPointReason`, `analysis.distinctDates`, `analysis.excludedSameDayEvents`, and `analysis.coverage` keep the reading auditable. `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
+The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `repositoryMap`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `repositoryMap.readOrder[].readingGuide` turns a suggested route into a file-level reading lens with declaration and import line evidence. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into one discovery with an ordered evidence trail; `analysis.phases` explains the grouped natural-day arc and why its turning point was selected; `analysis.turningPointReason`, `analysis.distinctDates`, `analysis.excludedSameDayEvents`, and `analysis.coverage` keep the reading auditable. `analysis.discovery` carries the early cross-file finding, its evidence index, Atlas route, and evidence boundary. `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
 
 Built by `strawberry-little-bear`.

@@ -143,6 +143,7 @@ const state = {
   audioContext: null,
   scoreTimer: null,
   scoreIndex: 0,
+  selectedScore: 0,
   transitionTimer: null,
   transitionHideTimer: null,
   navigationLockUntil: 0,
@@ -180,6 +181,14 @@ function formatNumber(value) {
 function formatDate(value, withYear = true) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}) }).format(new Date(value));
+}
+
+function pulseDateLabel(value) {
+  if (!value) return "DATE\n—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10).replace("-", "\n");
+  const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date).toUpperCase();
+  return `${month}\n${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function dayKey(value) {
@@ -1871,6 +1880,89 @@ function renderTimeline(data) {
   el("history-source").href = `${data.htmlUrl}/commits`;
 }
 
+function fieldDiscoveryFor(data) {
+  const discovery = data.analysis?.discovery;
+  if (discovery?.title && discovery?.summary) {
+    return {
+      ...discovery,
+      mode: discovery.mode || "mixed",
+      evidence: dedupeEvidence(discovery.evidence || [], 5),
+      route: discovery.route || discovery.investigationId || "",
+    };
+  }
+  const investigations = data.repositoryMap?.investigations || [];
+  const investigation = ["public-path", "technical-boundary", "promise-check"]
+    .map((id) => investigations.find((item) => item.id === id))
+    .find(Boolean) || investigations[0];
+  if (investigation?.finding) {
+    const steps = investigation.steps || [];
+    return {
+      label: investigation.label || "Cross-file reading",
+      title: investigation.question || "What did the cross-file reading reveal?",
+      summary: investigation.finding,
+      whyItMatters: investigation.why || "A finding becomes useful when a visitor can inspect the paths behind it.",
+      mode: "mixed",
+      boundary: investigation.boundary || "Built from tracked paths and bounded text scans only; no runtime behavior was executed.",
+      evidence: steps.slice(0, 4).map((step) => ({
+        type: "file",
+        ref: step.path,
+        label: step.path,
+        claim: step.prompt || step.role || "This tracked path supports the reading.",
+      })),
+      route: investigation.id,
+    };
+  }
+  const room = data.learning?.rooms?.[0];
+  if (!room?.discovery) return null;
+  return {
+    label: "First reading",
+    title: room.question || "What can a newcomer learn here?",
+    summary: room.discovery,
+    whyItMatters: room.whyItMatters || "Begin with one defensible observation, then follow its evidence.",
+    mode: room.mode || "observed",
+    boundary: "Derived from the collection's available evidence; gaps are left visible.",
+    evidence: dedupeEvidence(room.evidenceTrail || room.evidence || [], 4),
+    route: "hall-architecture",
+  };
+}
+
+function renderFieldDiscovery(data) {
+  const section = el("field-discovery");
+  const discovery = fieldDiscoveryFor(data);
+  section.hidden = !discovery;
+  if (!discovery) return;
+  el("field-discovery-mode").textContent = `${discovery.label || "Agent reading"} · ${discovery.mode || "mixed"}`.toUpperCase();
+  el("field-discovery-title").textContent = discovery.title;
+  el("field-discovery-summary").textContent = discovery.summary;
+  el("field-discovery-why").textContent = discovery.whyItMatters || "";
+  el("field-discovery-why").hidden = !discovery.whyItMatters;
+  el("field-discovery-boundary").textContent = discovery.boundary || "Structural evidence only; no runtime claim is made.";
+  const evidence = el("field-discovery-evidence");
+  evidence.replaceChildren(...(discovery.evidence || []).map((item, index) => {
+    const link = document.createElement("a");
+    link.href = sourceHref(data, item);
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    const number = document.createElement("span");
+    number.className = "field-discovery-evidence-index";
+    number.textContent = String(index + 1).padStart(2, "0");
+    const copy = document.createElement("span");
+    const ref = document.createElement("strong");
+    ref.textContent = item.label || item.ref || "Evidence";
+    const claim = document.createElement("small");
+    claim.textContent = item.claim || "Open this source to inspect the evidence.";
+    copy.append(ref, claim);
+    link.append(number, copy, Object.assign(document.createElement("i"), { textContent: "↗" }));
+    return link;
+  }));
+  if (!evidence.children.length) {
+    evidence.append(Object.assign(document.createElement("span"), { className: "empty-note", textContent: "No direct evidence link was supplied for this finding." }));
+  }
+  const route = el("field-discovery-route");
+  route.dataset.investigation = discovery.route || "";
+  route.hidden = !discovery.route;
+}
+
 function renderAnalysis(data) {
   const analysis = data.analysis || buildBrowserAnalysis(data);
   el("analysis-headline").textContent = analysis.headline || "A project shaped by its own trail.";
@@ -2912,11 +3004,58 @@ function renderDependencySpotlight(data, dependencies = data.dependencies || [])
   el("dependency-spotlight-source").href = `${data.htmlUrl}/blob/${data.defaultBranch || "main"}/${dependency.sourcePath || data.manifestPath || "package.json"}`;
 }
 
+function scoreEventFor(data, commit) {
+  return (data.events || []).find((event) => event.sha === commit.sha || (commit.fullDate && event.date === commit.fullDate))
+    || (data.events || []).find((event) => event.date === commit.date)
+    || null;
+}
+
+function renderScoreSpotlight(data, commit) {
+  const event = scoreEventFor(data, commit);
+  const grouped = Math.max(1, Number(commit.groupCount || event?.groupCount || 1));
+  const title = event?.title || `Commit ${shortenSha(commit.sha)}`;
+  const date = formatDate(commit.fullDate || commit.date);
+  const detail = event?.meta || `${grouped} commit${grouped === 1 ? "" : "s"} grouped into this dated marker.`;
+  el("score-spotlight-index").textContent = `Pulse ${String((data.commits || []).indexOf(commit) + 1).padStart(2, "0")}`;
+  el("score-spotlight-title").textContent = title;
+  el("score-spotlight-detail").textContent = `${date} · ${detail}`;
+  const source = el("score-spotlight-source");
+  source.href = commit.url || `${data.htmlUrl}/commit/${commit.sha}`;
+  source.hidden = !commit.sha;
+}
+
 function renderScore(data) {
   const commits = data.commits?.length ? data.commits : demoData.commits;
+  const selected = Math.min(state.selectedScore, Math.max(0, commits.length - 1));
+  state.selectedScore = selected;
   const bars = el("score-bars"); const dates = el("score-dates");
-  bars.replaceChildren(...commits.map((commit, index) => { const bar = document.createElement("i"); bar.className = "score-bar"; bar.style.setProperty("--height", `${Math.max(8, commit.score)}%`); bar.style.setProperty("--delay", `${index * 70}ms`); bar.title = `${commit.sha} · ${commit.date}`; return bar; }));
-  dates.replaceChildren(...commits.map((commit) => { const date = document.createElement("span"); date.textContent = commit.date; return date; }));
+  bars.replaceChildren(...commits.map((commit, index) => {
+    const bar = document.createElement("button");
+    bar.type = "button";
+    bar.className = `score-bar${index === selected ? " is-current" : ""}`;
+    bar.style.setProperty("--height", `${Math.max(8, commit.score)}%`);
+    bar.style.setProperty("--delay", `${index * 70}ms`);
+    bar.title = `${commit.sha} · ${commit.date}`;
+    bar.setAttribute("aria-label", `${formatDate(commit.fullDate || commit.date)}: ${commit.groupCount || 1} grouped commit${Number(commit.groupCount || 1) === 1 ? "" : "s"}. Inspect evidence.`);
+    bar.setAttribute("aria-pressed", String(index === selected));
+    bar.addEventListener("click", () => {
+      state.selectedScore = index;
+      renderScore(data);
+      if (!state.isMuted) playTone(index);
+    });
+    return bar;
+  }));
+  dates.replaceChildren(...commits.map((commit, index) => {
+    const date = document.createElement("button");
+    date.type = "button";
+    date.className = `score-date${index === selected ? " is-current" : ""}`;
+    date.textContent = pulseDateLabel(commit.fullDate || commit.date);
+    date.title = formatDate(commit.fullDate || commit.date);
+    date.addEventListener("click", () => { state.selectedScore = index; renderScore(data); if (!state.isMuted) playTone(index); });
+    return date;
+  }));
+  if (commits.length) renderScoreSpotlight(data, commits[selected]);
+  el("score-caption").textContent = `Commit pulse / ${commits.length} dated markers · click to inspect`;
 }
 
 function render(data) {
@@ -2932,6 +3071,7 @@ function render(data) {
   state.selectedArchitecture = 0;
   state.selectedHistory = 0;
   state.selectedDependency = 0;
+  state.selectedScore = 0;
   state.exitAnswers = {};
   el("collection-status").textContent = state.mode === "agent" ? `Agent collection · ${data.repo}` : data.repo === demoData.repo ? "Demo collection · ready to explore" : `Public collection · ${data.repo}`;
   el("project-number").textContent = data.repo === demoData.repo ? "001" : "LIVE";
@@ -2946,7 +3086,7 @@ function render(data) {
   el("fact-pushed").textContent = relativeDate(data.pushedAt);
   el("fact-language").textContent = data.language || "Mixed stack";
   el("fact-license").textContent = data.license || "Unspecified";
-  renderStats(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderRepositoryExplorer(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
+  renderStats(data); renderFieldDiscovery(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderRepositoryExplorer(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
   el("score-caption").textContent = `Commit pulse / ${data.commits?.length || 0} markers`;
 }
 
@@ -3052,20 +3192,35 @@ function stopOpera() {
   el("opera-toggle-label").textContent = "Play the score";
 }
 
+function ensureAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  state.audioContext ||= new AudioContextClass();
+  if (state.audioContext.state === "suspended") state.audioContext.resume();
+  return state.audioContext;
+}
+
 function toggleOpera() {
   state.isPlaying = !state.isPlaying; const bars = el("score-bars"); bars.classList.toggle("is-playing", state.isPlaying); el("opera-toggle-icon").textContent = state.isPlaying ? "Ⅱ" : "▶"; el("opera-toggle-label").textContent = state.isPlaying ? "Pause the score" : "Play the score";
   if (state.isPlaying) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) { stopOpera(); showToast("Audio playback is not supported in this browser."); return; }
-    state.scoreIndex = 0; state.audioContext ||= new AudioContextClass();
-    if (state.audioContext.state === "suspended") state.audioContext.resume();
-    state.scoreTimer = window.setInterval(() => { if (!state.isMuted) playTone(state.scoreIndex); state.scoreIndex = (state.scoreIndex + 1) % Math.max(1, state.data.commits?.length || 12); }, 580 / Number(el("speed-select").value));
+    if (!ensureAudioContext()) { stopOpera(); showToast("Audio playback is not supported in this browser."); return; }
+    state.scoreIndex = 0;
+    state.selectedScore = 0;
+    renderScore(state.data);
+    state.scoreTimer = window.setInterval(() => {
+      if (!state.isMuted) playTone(state.scoreIndex);
+      const count = Math.max(1, state.data.commits?.length || 12);
+      state.scoreIndex = (state.scoreIndex + 1) % count;
+      state.selectedScore = state.scoreIndex;
+      renderScore(state.data);
+    }, 580 / Number(el("speed-select").value));
   } else { window.clearInterval(state.scoreTimer); }
 }
 
 function playTone(index) {
-  if (!state.audioContext) return;
-  const oscillator = state.audioContext.createOscillator(); const gain = state.audioContext.createGain(); oscillator.type = index % 3 === 0 ? "triangle" : "sine"; oscillator.frequency.value = 190 + (index % 7) * 42; gain.gain.setValueAtTime(0.0001, state.audioContext.currentTime); gain.gain.exponentialRampToValueAtTime(0.045, state.audioContext.currentTime + 0.025); gain.gain.exponentialRampToValueAtTime(0.0001, state.audioContext.currentTime + 0.28); oscillator.connect(gain).connect(state.audioContext.destination); oscillator.start(); oscillator.stop(state.audioContext.currentTime + 0.3);
+  const context = ensureAudioContext();
+  if (!context) return;
+  const oscillator = context.createOscillator(); const gain = context.createGain(); oscillator.type = index % 3 === 0 ? "triangle" : "sine"; oscillator.frequency.value = 190 + (index % 7) * 42; gain.gain.setValueAtTime(0.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(0.045, context.currentTime + 0.025); gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.28); oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + 0.3);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -3142,6 +3297,14 @@ document.addEventListener("DOMContentLoaded", () => {
     loadRepo(state.currentRepo);
   });
   el("share-button").addEventListener("click", async () => { const queryKey = state.mode === "agent" ? "museum" : "repo"; const queryValue = state.mode === "agent" ? state.artifactPath : state.currentRepo; const url = `${window.location.origin}${window.location.pathname}?${queryKey}=${encodeURIComponent(queryValue)}`; try { await navigator.clipboard.writeText(url); showToast("Share link copied to clipboard."); } catch { showToast(url); } });
+  el("field-discovery-route").addEventListener("click", () => {
+    const investigationId = el("field-discovery-route").dataset.investigation;
+    if (investigationId && state.data?.repositoryMap) {
+      state.explorerInvestigation = investigationId;
+      renderRepositoryRoute(state.data);
+    }
+    navigateToRoom("hall-architecture");
+  });
   el("opera-toggle").addEventListener("click", toggleOpera);
   el("mute-button").addEventListener("click", () => { state.isMuted = !state.isMuted; el("mute-button").textContent = state.isMuted ? "×" : "♫"; el("mute-button").title = state.isMuted ? "Unmute score" : "Mute score"; });
   el("speed-select").addEventListener("change", () => { if (state.isPlaying) { toggleOpera(); toggleOpera(); } });

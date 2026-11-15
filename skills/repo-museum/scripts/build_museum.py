@@ -2252,6 +2252,145 @@ def build_learning(
     }
 
 
+def build_field_discovery(
+    files: list[str],
+    repository_map: dict[str, Any],
+    architecture: dict[str, Any],
+    analysis: dict[str, Any],
+    dependencies: list[dict[str, str]],
+    readme_path: str | None,
+    manifest_path: str | None,
+) -> dict[str, Any]:
+    """Choose one early, cross-file finding whose evidence a visitor can inspect."""
+    read_order = repository_map.get("readOrder", [])
+    entrypoints = [str(item.get("path")) for item in read_order if item.get("kind") == "entrypoint" and item.get("path")]
+    implementation = [str(item.get("path")) for item in read_order if item.get("kind") in {"implementation", "api"} and item.get("path")]
+    browser_entry = next((path for path in entrypoints if path.endswith((".js", ".mjs", ".ts", ".tsx"))), entrypoints[0] if entrypoints else "")
+    static_shell = next((path for path in files if Path(path).name.lower() == "index.html"), "")
+    local_collector = next((path for path in files if path.endswith("build_museum.py")), "")
+    data_contract = next(
+        (path for path in files if "schema" in path.lower().split("/") and path.lower().endswith(".json")),
+        "",
+    )
+    workflow = next((path for path in files if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml"))), "")
+
+    def contains(path: str, *needles: str) -> bool:
+        if not path:
+            return False
+        text = read_tracked_text(path)
+        return bool(text) and all(needle in text for needle in needles)
+
+    # This is a structural reading, not a claim that the browser invokes Python.
+    # The checks keep the flagship finding tied to visible files and emitted data paths.
+    if (
+        browser_entry
+        and static_shell
+        and local_collector
+        and data_contract
+        and workflow
+        and contains(browser_entry, "fetchMuseumData")
+        and contains(static_shell, "museum-content")
+        and contains(local_collector, "museum.json")
+        and contains(data_contract, "Repo Museum Data")
+        and contains(workflow, local_collector, "collections/repo-museum.json")
+    ):
+        evidence = [
+            evidence_item(
+                "file",
+                browser_entry,
+                browser_entry,
+                "The browser-side collection builder assembles a live museum from public repository evidence.",
+            ),
+            evidence_item(
+                "file",
+                static_shell,
+                static_shell,
+                "The static shell defines the exhibition surfaces, loading state, and error state used by the renderer.",
+            ),
+            evidence_item(
+                "file",
+                local_collector,
+                local_collector,
+                "The local Agent collector reads Git history and tracked text, then writes .repo-museum/museum.json.",
+            ),
+            evidence_item(
+                "file",
+                data_contract,
+                data_contract,
+                "The JSON Schema declares the shared collection fields and evidence structure.",
+            ),
+            evidence_item(
+                "file",
+                workflow,
+                workflow,
+                "The Pages workflow runs the local collector and publishes its output as the built-in public collection.",
+            ),
+        ]
+        return {
+            "label": "Agent field discovery",
+            "title": "Two entrances. One museum contract.",
+            "summary": (
+                "Repo Museum keeps two structurally separate ways to create a collection: a browser-side collector centered on "
+                f"{browser_entry}, and a local Git collector in {local_collector}. Both meet at the same exhibition data "
+                f"contract declared in {data_contract}, while {workflow} publishes the Agent-built collection into the static site."
+            ),
+            "whyItMatters": (
+                "This explains why a live public scan and a local Agent visit can share one exhibition language: "
+                "the interchangeable boundary is the data contract, not a runtime call between the two entrances."
+            ),
+            "mode": "mixed",
+            "evidence": evidence,
+            "route": "technical-boundary",
+            "boundary": (
+                "Structural reading of five tracked files. The museum compared visible declarations and output paths; "
+                "it did not execute the browser or Agent path or prove every runtime interaction."
+            ),
+        }
+
+    investigations = repository_map.get("investigations", [])
+    priority = ["public-path", "technical-boundary", "promise-check"]
+    investigation = next(
+        (next((item for item in investigations if item.get("id") == wanted), None) for wanted in priority if any(item.get("id") == wanted for item in investigations)),
+        investigations[0] if investigations else None,
+    )
+    if investigation:
+        steps = investigation.get("steps", [])
+        return {
+            "label": investigation.get("label") or "Cross-file reading",
+            "title": investigation.get("question") or "What did the cross-file reading reveal?",
+            "summary": investigation.get("finding") or "The available paths support a bounded structural reading, not a runtime trace.",
+            "whyItMatters": investigation.get("why") or "A finding becomes useful when its evidence can be inspected.",
+            "mode": "mixed",
+            "evidence": [
+                evidence_item(
+                    "file",
+                    str(step.get("path")),
+                    str(step.get("path")),
+                    str(step.get("prompt") or step.get("role") or "This tracked path supports the reading."),
+                )
+                for step in steps[:4]
+                if step.get("path")
+            ],
+            "route": investigation.get("id") or "",
+            "boundary": investigation.get("boundary") or "Built from tracked paths and bounded text scans only.",
+        }
+
+    first_evidence = readme_path or manifest_path or (files[0] if files else "README.md")
+    return {
+        "label": "First reading",
+        "title": "Start with the clearest visible boundary.",
+        "summary": (
+            f"The strongest first evidence in this sample is {first_evidence}; the collection uses it to orient the visit "
+            "without filling in evidence the repository does not expose."
+        ),
+        "whyItMatters": "A first reading should make one defensible observation before asking the visitor to inspect the tree.",
+        "mode": "observed",
+        "evidence": [evidence_item("file", first_evidence, first_evidence, "This tracked path supplies the collection's first visible reading.")],
+        "route": "",
+        "boundary": "Only the available tracked paths and bounded text scans inform this reading.",
+    }
+
+
 def main() -> None:
     if not (ROOT / ".git").exists():
         raise SystemExit("Repo Museum Agent must run from a Git repository root.")
@@ -2295,9 +2434,18 @@ def main() -> None:
     repository_map = build_repository_map(files, branch, slug)
     architecture = build_architecture(files, manifest_path, readme_path, language, repository_map)
     journey = build_journey(files, readme_path, manifest_path, architecture)
+    analysis["discovery"] = build_field_discovery(
+        files,
+        repository_map,
+        architecture,
+        analysis,
+        dependencies,
+        readme_path,
+        manifest_path,
+    )
     learning = build_learning(orientation, journey, architecture, analysis, dependencies, readme_path, manifest_path, repository_map)
     artifact = {
-        "version": "1.3",
+        "version": "1.4",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "project": {"repo": slug, "name": slug.replace("/", " / "), "htmlUrl": url, "description": description, "manifestPath": manifest_path, "defaultBranch": branch},
         "repo": slug,
