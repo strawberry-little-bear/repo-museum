@@ -63,6 +63,34 @@
         "boundary": { "type": "string" }
       }
     },
+    "investigationStep": {
+      "type": "object",
+      "required": ["path", "role", "kind", "prompt", "evidence"],
+      "properties": {
+        "path": { "type": "string" },
+        "role": { "type": "string" },
+        "kind": { "type": "string" },
+        "prompt": { "type": "string" },
+        "evidence": { "type": "string" }
+      }
+    },
+    "investigation": {
+      "type": "object",
+      "required": ["id", "label", "question", "why", "steps", "finding", "boundary"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "question": { "type": "string" },
+        "why": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/investigationStep" }
+        },
+        "finding": { "type": "string" },
+        "boundary": { "type": "string" }
+      }
+    },
     "repositoryMap": {
       "type": "object",
       "required": ["root", "branch", "truncated", "totalFiles", "totalDirectories", "indexedEntries", "extensions", "directories", "readOrder", "entries", "coverageNote"],
@@ -110,6 +138,10 @@
               "readingGuide": { "$ref": "#/$defs/readingGuide" }
             }
           }
+        },
+        "investigations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/investigation" }
         },
         "entries": {
           "type": "array",

@@ -1008,6 +1008,188 @@ def build_read_order(files: list[str], project_name: str = "") -> list[dict[str,
     return route
 
 
+def investigation_prompt_for(item: dict[str, Any]) -> str:
+    """Turn one reading stop into a concrete, evidence-bounded task."""
+    guide = item.get("readingGuide") or {}
+    symbols = guide.get("symbols") or []
+    primary = symbols[0] if symbols else {}
+    import_entries = guide.get("imports") or []
+    imports = [str(entry.get("source")) for entry in import_entries[:3] if entry.get("source")]
+    quoted_imports = [f"“{name}”" for name in imports]
+    role = str(item.get("role") or "Tracked evidence")
+    kind = str(item.get("kind") or "reading")
+
+    if kind == "documentation":
+        if primary.get("name"):
+            return f"Read “{clip_reading_guide(str(primary['name']), 72)}” first. Record one user action and one promised outcome before following their code-shaped labels."
+        return "Read the opening claim first. Record one user action and one promised outcome before following code-shaped labels."
+    if kind == "manifest":
+        if quoted_imports:
+            return f"Separate declared capability from observed use. The manifest visibly names {natural_list(quoted_imports)}; none is proven active by the declaration alone."
+        return "Separate declared capability from observed use. Start with commands and package names, then look for source evidence elsewhere."
+    if kind in {"entrypoint", "implementation", "api", "example", "test", "automation"}:
+        if primary.get("name"):
+            import_note = f" The same scan finds {natural_list(quoted_imports)} at its visible boundary." if quoted_imports else ""
+            return f"Locate {primary.get('kind') or 'signal'} {primary['name']} at line {primary.get('line') or 1}. Infer only the responsibility its name and signature support.{import_note}"
+        return f"{role}. Follow names and imports as reading clues; do not turn this file into a runtime call-path claim."
+    return str(item.get("why") or "Read this path for a structural clue, then check the linked source before drawing a conclusion.")
+
+
+def investigation_finding_for(investigation_id: str, steps: list[dict[str, Any]]) -> str:
+    """State what the combined reading route supports without overclaiming."""
+    paths = [str(step.get("path")) for step in steps if step.get("path")]
+    implementation = next(
+        (step for step in steps if step.get("kind") in {"implementation", "api", "entrypoint"}),
+        None,
+    )
+    if not implementation:
+        implementation = next(
+            (step for step in steps if (step.get("readingGuide") or {}).get("symbols")),
+            None,
+        )
+    guide = (implementation or {}).get("readingGuide") or {}
+    symbols = guide.get("symbols") or []
+    primary = symbols[0] if symbols else {}
+    facts = guide.get("facts") or []
+    declaration_fact = next((fact for fact in facts if re.search(r"declaration", str(fact.get("label", "")), re.I)), None)
+    imports = [str(entry.get("source")) for entry in (guide.get("imports") or [])[:3] if entry.get("source")]
+    quoted_imports = [f"“{name}”" for name in imports]
+    source_note = ""
+    if implementation and primary.get("name"):
+        declaration_note = ""
+        if declaration_fact:
+            count = str(declaration_fact.get("value"))
+            declaration_note = f" across {count} visible declaration{'s' if count != '1' else ''}"
+        import_note = f" and references {natural_list(quoted_imports)}" if quoted_imports else ""
+        source_note = (
+            f" On the structural scan, {implementation['path']} opens with "
+            f"{primary.get('kind') or 'signal'} {primary['name']} at line {primary.get('line') or 1}"
+            f"{declaration_note}{import_note}."
+        )
+    elif implementation and declaration_fact:
+        count = str(declaration_fact.get("value"))
+        source_note = f" {implementation['path']} exposes {count} visible declaration{'s' if count != '1' else ''} in the bounded scan."
+
+    if investigation_id == "promise-check":
+        checks = [str(step["path"]) for step in steps if step.get("kind") in {"example", "test"} and step.get("path")]
+        maintenance = [str(step["path"]) for step in steps if step.get("kind") == "automation" and step.get("path")]
+        if not checks:
+            return f"This route reaches {natural_list(maintenance or paths[1:])}, but no worked example or test file enters the investigation. It can show how the project is described or maintained, not whether its public behavior works."
+        return f"This route pairs the public account with {natural_list([*checks, *maintenance])}. Compare what the project says with the worked or checked behavior available in the tree; the presence of a check does not prove that it passes."
+    if investigation_id == "technical-boundary":
+        manifest = next((step for step in steps if step.get("kind") == "manifest"), None)
+        facts = (manifest or {}).get("readingGuide", {}).get("facts") or []
+        dependency_fact = next((fact for fact in facts if re.search(r"dependenc|declaration", str(fact.get("label", "")), re.I)), None)
+        if not manifest:
+            return f"Start with {natural_list(paths[:3])}.{source_note} No manifest enters this bounded route, so the investigation can compare visible declarations and imports but cannot establish the project's declared packages."
+        fact_note = ""
+        if dependency_fact:
+            fact_note = f" The manifest records {dependency_fact.get('value')} {str(dependency_fact.get('label', '')).lower()}."
+        return f"Start with {natural_list(paths[:3])}.{fact_note}{source_note} Read declarations and imports as boundaries; the museum did not resolve runtime calls or prove that every package is used."
+    roles = [f"{step.get('role') or str(step.get('kind') or 'reading').title()} ({step['path']})" for step in steps[:4] if step.get("path")]
+    if investigation_id == "first-reading":
+        return f"This short route connects {natural_list(roles)}. It offers a structural starting point, but the available categories do not support a claim about a public-to-implementation hand-off."
+    return f"The route connects {natural_list(roles)}.{source_note} This exposes a defensible hand-off between public language, entry points, and implementation; it does not establish that a request executes through these files."
+
+
+def build_reading_investigations(read_order: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build cross-file questions from the same bounded evidence as the reading route."""
+    available = [item for item in read_order if item.get("path")]
+
+    def pick(kinds: list[str]) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        for kind in kinds:
+            match = next((item for item in available if item.get("kind") == kind), None)
+            if match:
+                selected.append(match)
+        return selected
+
+    def unique_steps(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        unique: list[dict[str, Any]] = []
+        for item in items:
+            path = str(item.get("path"))
+            if path in seen:
+                continue
+            seen.add(path)
+            unique.append(item)
+        return unique
+
+    definitions = [
+        {
+            "id": "public-path",
+            "label": "Trace the public path",
+            "question": "How does the project's public promise become a visible code path?",
+            "why": "Begin with the project's own account, then follow the first tracked boundary into implementation.",
+            "steps": unique_steps(pick(["documentation", "entrypoint", "implementation", "api"])),
+        },
+        {
+            "id": "promise-check",
+            "label": "Check the promise",
+            "question": "What in the repository lets you compare a claim with exercised behavior?",
+            "why": "Look for examples, checks, and maintenance automation before treating the README as proof.",
+            "steps": unique_steps(pick(["documentation", "example", "test", "automation"])),
+        },
+        {
+            "id": "technical-boundary",
+            "label": "Map the technical boundary",
+            "question": "What does the project declare, borrow, and implement itself?",
+            "why": "Read the manifest alongside source declarations and imports to separate declared capability from observed structure.",
+            "steps": unique_steps(pick(["manifest", "entrypoint", "implementation", "api", "test"])),
+        },
+    ]
+    investigations: list[dict[str, Any]] = []
+    for definition in definitions:
+        steps = definition["steps"]
+        if len(steps) < 2:
+            continue
+        investigations.append(
+            {
+                "id": definition["id"],
+                "label": definition["label"],
+                "question": definition["question"],
+                "why": definition["why"],
+                "steps": [
+                    {
+                        "path": item["path"],
+                        "role": item.get("role") or str(item.get("kind") or "reading").replace("_", " ").title(),
+                        "kind": item.get("kind") or "reading",
+                        "prompt": investigation_prompt_for(item),
+                        "evidence": item.get("evidence") or item["path"],
+                    }
+                    for item in steps
+                ],
+                "finding": investigation_finding_for(definition["id"], steps),
+                "boundary": "Built from tracked paths and bounded text scans only; this investigation does not resolve runtime calls, execute code, or prove a dependency was used.",
+            }
+        )
+    if investigations:
+        return investigations
+    if len(available) < 2:
+        return []
+    steps = available[:5]
+    return [
+        {
+            "id": "first-reading",
+            "label": "First reading",
+            "question": "Which visible files give the clearest first account of this repository?",
+            "why": "The available tree supports a short structural route, but not a more specific multi-file investigation.",
+            "steps": [
+                {
+                    "path": item["path"],
+                    "role": item.get("role") or str(item.get("kind") or "reading").replace("_", " ").title(),
+                    "kind": item.get("kind") or "reading",
+                    "prompt": investigation_prompt_for(item),
+                    "evidence": item.get("evidence") or item["path"],
+                }
+                for item in steps
+            ],
+            "finding": investigation_finding_for("first-reading", steps),
+            "boundary": "Built from the available reading route only; missing evidence was left out rather than invented.",
+        }
+    ]
+
+
 def build_repository_map(files: list[str], branch: str = "main", project_name: str = "") -> dict[str, Any]:
     """Build the same full-tree reading contract used by the browser collector."""
     unique_files = sorted({path.strip("/") for path in files if path and path.strip("/")})
@@ -1071,6 +1253,7 @@ def build_repository_map(files: list[str], branch: str = "main", project_name: s
             for path, count in sorted(directory_counts.items(), key=lambda item: (-item[1], item[0]))[:80]
         ],
         "readOrder": read_order,
+        "investigations": build_reading_investigations(read_order),
         "entries": entries,
         "coverageNote": "Every path in the tracked HEAD tree is indexed; reading roles are inferred from names and paths.",
     }

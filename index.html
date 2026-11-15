@@ -218,12 +218,23 @@
                   <div class="architecture-spotlight" id="architecture-spotlight"><p class="subsection-label">Select a part of the blueprint</p><strong id="architecture-spotlight-title">The repository is a set of responsibilities.</strong><p id="architecture-spotlight-copy">Choose a node above to connect its role to the visitor path.</p><a id="architecture-spotlight-source" href="#" target="_blank" rel="noreferrer">Open evidence ↗</a></div>
                   <div class="repo-explorer" id="repo-explorer" aria-labelledby="repo-explorer-title">
                     <div class="repo-explorer-heading">
-                      <div><p class="subsection-label">Repository atlas</p><h5 id="repo-explorer-title">Read the project in the order a newcomer would.</h5></div>
+                      <div><p class="subsection-label">Repository atlas</p><h5 id="repo-explorer-title">Ask a question, then follow the evidence.</h5></div>
                       <div class="repo-map-metrics" id="repo-map-metrics" aria-live="polite"></div>
                     </div>
                     <div class="repo-read-order">
-                      <div class="repo-read-order-heading"><span class="subsection-label">Suggested first route</span><p id="repo-map-route-note">A short evidence trail from purpose to implementation.</p></div>
-                      <div class="repo-read-order-list" id="repo-read-order"></div>
+                      <div class="repo-read-order-heading"><span class="subsection-label">Guided investigations</span><p id="repo-map-route-note">Choose an evidence-backed question to investigate.</p></div>
+                      <div class="repo-investigation-tabs" id="repo-investigation-tabs" role="group" aria-label="Guided repository investigations"></div>
+                      <div class="repo-investigation-detail" aria-live="polite">
+                        <div class="repo-investigation-brief">
+                          <div>
+                            <p class="repo-investigation-question" id="repo-investigation-question">What can this repository teach a newcomer?</p>
+                            <p class="repo-investigation-why" id="repo-investigation-why">Follow the available evidence without filling the gaps.</p>
+                          </div>
+                          <div class="repo-investigation-note"><span>Field note</span><p id="repo-investigation-finding">The route is a reading suggestion, not a runtime trace.</p></div>
+                        </div>
+                        <div class="repo-read-order-list" id="repo-read-order"></div>
+                        <p class="repo-investigation-boundary" id="repo-investigation-boundary">Structural evidence only.</p>
+                      </div>
                     </div>
                     <div class="repo-explorer-workbench">
                       <div class="repo-browser">

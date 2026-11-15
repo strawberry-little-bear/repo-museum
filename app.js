@@ -152,6 +152,7 @@ const state = {
   explorerQuery: "",
   explorerFilter: "all",
   explorerPath: "",
+  explorerInvestigation: "",
   explorerPreview: null,
   explorerPreviewState: "idle",
   explorerRequestId: 0,
@@ -866,6 +867,129 @@ function buildReadOrder(files, projectName = "") {
   return route;
 }
 
+function investigationPromptFor(item) {
+  const guide = item?.readingGuide;
+  const primary = guide?.symbols?.[0];
+  const imports = (guide?.imports || []).slice(0, 3).map((entry) => entry.source).filter(Boolean);
+  const role = item?.role || "Tracked evidence";
+  if (item?.kind === "documentation") {
+    return primary
+      ? `Read “${clipReadingGuide(primary.name, 72)}” first. Record one user action and one promised outcome before following their code-shaped labels.`
+      : "Read the opening claim first. Record one user action and one promised outcome before following code-shaped labels.";
+  }
+  if (item?.kind === "manifest") {
+    return imports.length
+      ? `Separate declared capability from observed use. The manifest visibly names ${naturalList(imports.map((name) => `“${name}”`))}; none is proven active by the declaration alone.`
+      : "Separate declared capability from observed use. Start with commands and package names, then look for source evidence elsewhere.";
+  }
+  if (["entrypoint", "implementation", "api", "example", "test", "automation"].includes(item?.kind)) {
+    if (primary) {
+      const importNote = imports.length ? ` The same scan finds ${naturalList(imports.map((name) => `“${name}”`))} at its visible boundary.` : "";
+      return `Locate ${primary.kind || "signal"} ${primary.name} at line ${primary.line || 1}. Infer only the responsibility its name and signature support.${importNote}`;
+    }
+    return `${role}. Follow names and imports as reading clues; do not turn this file into a runtime call-path claim.`;
+  }
+  return item?.why || "Read this path for a structural clue, then check the linked source before drawing a conclusion.";
+}
+
+function investigationFindingFor(id, steps) {
+  const paths = steps.map((step) => step.path);
+  const implementation = steps.find((step) => ["implementation", "api", "entrypoint"].includes(step.kind)) || steps.find((step) => step.readingGuide?.symbols?.length);
+  const primary = implementation?.readingGuide?.symbols?.[0];
+  const imports = (implementation?.readingGuide?.imports || []).slice(0, 3).map((entry) => entry.source).filter(Boolean);
+  const facts = implementation?.readingGuide?.facts || [];
+  const declarationFact = facts.find((fact) => /declaration/i.test(fact.label));
+  const sourceNote = primary
+    ? ` On the structural scan, ${implementation.path} opens with ${primary.kind || "signal"} ${primary.name} at line ${primary.line || 1}${declarationFact ? ` across ${declarationFact.value} visible declaration${declarationFact.value === "1" ? "" : "s"}` : ""}${imports.length ? ` and references ${naturalList(imports.map((name) => `“${name}”`))}` : ""}.`
+    : declarationFact ? ` ${implementation.path} exposes ${declarationFact.value} visible declaration${declarationFact.value === "1" ? "" : "s"} in the bounded scan.` : "";
+  if (id === "promise-check") {
+    const checks = steps.filter((step) => ["example", "test"].includes(step.kind)).map((step) => step.path);
+    const maintenance = steps.filter((step) => step.kind === "automation").map((step) => step.path);
+    if (!checks.length) return `This route reaches ${naturalList(maintenance.length ? maintenance : paths.slice(1))}, but no worked example or test file enters the investigation. It can show how the project is described or maintained, not whether its public behavior works.`;
+    return `This route pairs the public account with ${naturalList([...checks, ...maintenance])}. Compare what the project says with the worked or checked behavior available in the tree; the presence of a check does not prove that it passes.`;
+  }
+  if (id === "technical-boundary") {
+    const manifest = steps.find((step) => step.kind === "manifest");
+    const manifestFacts = manifest?.readingGuide?.facts || [];
+    const dependencyFact = manifestFacts.find((fact) => /dependenc|declaration/i.test(fact.label));
+    if (!manifest) return `Start with ${naturalList(paths.slice(0, 3))}.${sourceNote} No manifest enters this bounded route, so the investigation can compare visible declarations and imports but cannot establish the project's declared packages.`;
+    return `Start with ${naturalList(paths.slice(0, 3))}.${dependencyFact ? ` The manifest records ${dependencyFact.value} ${dependencyFact.label.toLowerCase()}.` : ""}${sourceNote} Read declarations and imports as boundaries; the museum did not resolve runtime calls or prove that every package is used.`;
+  }
+  const roles = steps.slice(0, 4).map((step) => `${step.role || categoryLabel(step.kind)} (${step.path})`);
+  if (id === "first-reading") return `This short route connects ${naturalList(roles)}. It offers a structural starting point, but the available categories do not support a claim about a public-to-implementation hand-off.`;
+  return `The route connects ${naturalList(roles)}.${sourceNote} This exposes a defensible hand-off between public language, entry points, and implementation; it does not establish that a request executes through these files.`;
+}
+
+function buildReadingInvestigations(readOrder = []) {
+  const available = (readOrder || []).filter((item) => item?.path);
+  const pick = (kinds) => kinds.map((kind) => available.find((item) => item.kind === kind)).filter(Boolean);
+  const uniqueSteps = (items) => {
+    const seen = new Set();
+    return items.filter((item) => {
+      if (seen.has(item.path)) return false;
+      seen.add(item.path);
+      return true;
+    });
+  };
+  const definitions = [
+    {
+      id: "public-path",
+      label: "Trace the public path",
+      question: "How does the project's public promise become a visible code path?",
+      why: "Begin with the project's own account, then follow the first tracked boundary into implementation.",
+      steps: uniqueSteps(pick(["documentation", "entrypoint", "implementation", "api"])),
+    },
+    {
+      id: "promise-check",
+      label: "Check the promise",
+      question: "What in the repository lets you compare a claim with exercised behavior?",
+      why: "Look for examples, checks, and maintenance automation before treating the README as proof.",
+      steps: uniqueSteps(pick(["documentation", "example", "test", "automation"])),
+    },
+    {
+      id: "technical-boundary",
+      label: "Map the technical boundary",
+      question: "What does the project declare, borrow, and implement itself?",
+      why: "Read the manifest alongside source declarations and imports to separate declared capability from observed structure.",
+      steps: uniqueSteps(pick(["manifest", "entrypoint", "implementation", "api", "test"])),
+    },
+  ];
+  const investigations = definitions
+    .filter((definition) => definition.steps.length >= 2)
+    .map((definition) => ({
+      id: definition.id,
+      label: definition.label,
+      question: definition.question,
+      why: definition.why,
+      steps: definition.steps.map((item) => ({
+        path: item.path,
+        role: item.role || categoryLabel(item.kind),
+        kind: item.kind || "reading",
+        prompt: investigationPromptFor(item),
+        evidence: item.evidence || item.path,
+      })),
+      finding: investigationFindingFor(definition.id, definition.steps),
+      boundary: "Built from tracked paths and bounded text scans only; this investigation does not resolve runtime calls, execute code, or prove a dependency was used.",
+    }));
+  if (investigations.length) return investigations;
+  if (available.length < 2) return [];
+  return [{
+    id: "first-reading",
+    label: "First reading",
+    question: "Which visible files give the clearest first account of this repository?",
+    why: "The available tree supports a short structural route, but not a more specific multi-file investigation.",
+    steps: available.slice(0, 5).map((item) => ({
+      path: item.path,
+      role: item.role || categoryLabel(item.kind),
+      kind: item.kind || "reading",
+      prompt: investigationPromptFor(item),
+      evidence: item.evidence || item.path,
+    })),
+    finding: investigationFindingFor("first-reading", available.slice(0, 5)),
+    boundary: "Built from the available reading route only; missing evidence was left out rather than invented.",
+  }];
+}
+
 function buildRepositoryMap(sourceEntries = [], options = {}) {
   const normalized = new Map();
   for (const source of sourceEntries || []) {
@@ -925,6 +1049,7 @@ function buildRepositoryMap(sourceEntries = [], options = {}) {
     extensions: [...extensionCounts].map(([extension, count]) => ({ extension, count })).sort((left, right) => right.count - left.count || left.extension.localeCompare(right.extension)),
     directories: [...directoryCounts].map(([path, count]) => ({ path, count })).sort((left, right) => right.count - left.count || left.path.localeCompare(right.path)).slice(0, 80),
     readOrder,
+    investigations: buildReadingInvestigations(readOrder),
     entries,
     coverageNote: options.truncated ? "GitHub marked this recursive tree as truncated; the explorer indexes only the paths returned before that boundary." : "Every path returned by the current recursive tree is indexed.",
   };
@@ -1839,6 +1964,7 @@ function resetRepositoryExplorer() {
   state.explorerQuery = "";
   state.explorerFilter = "all";
   state.explorerPath = "";
+  state.explorerInvestigation = "";
   state.explorerPreview = null;
   state.explorerPreviewState = "idle";
   state.explorerRequestId += 1;
@@ -1894,10 +2020,47 @@ function looksBinaryText(text) {
 
 function renderRepositoryRoute(data) {
   const map = data.repositoryMap;
-  const route = map?.readOrder || [];
-  el("repo-map-route-note").textContent = map?.truncated
-    ? "A suggested route across the partial tree. Select a stop to turn its text into a reading field note."
-    : "A suggested route from purpose to implementation. Each stop becomes a field note with declarations, imports, and line evidence.";
+  if (!map) return;
+  if (!Array.isArray(map.investigations) || !map.investigations.length) map.investigations = buildReadingInvestigations(map.readOrder || []);
+  const investigations = map.investigations || [];
+  let investigation = investigations.find((item) => item.id === state.explorerInvestigation) || investigations[0];
+  if (!investigation) {
+    el("repo-map-route-note").textContent = "The indexed tree does not yet support a multi-file investigation.";
+    el("repo-investigation-tabs").replaceChildren();
+    el("repo-investigation-question").textContent = "No supported investigation yet.";
+    el("repo-investigation-why").textContent = "A useful route needs at least two comparable evidence stops.";
+    el("repo-investigation-finding").textContent = "This view can show indexed paths, but it cannot produce a cross-file finding without inventing evidence.";
+    el("repo-investigation-boundary").textContent = "Available path structure only.";
+    el("repo-read-order").replaceChildren(Object.assign(document.createElement("p"), { className: "repo-map-empty", textContent: "No reading route can be supported without inventing evidence." }));
+    return;
+  }
+  state.explorerInvestigation = investigation.id;
+  el("repo-map-route-note").textContent = map.truncated
+    ? `Choose one of ${investigations.length} questions across the partial tree. Each answer names its evidence boundary.`
+    : `Choose one of ${investigations.length} evidence-backed questions. Each route turns repository structure into something specific to inspect.`;
+  el("repo-investigation-tabs").replaceChildren(...investigations.map((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `repo-investigation-tab${item.id === investigation.id ? " is-active" : ""}`;
+    button.setAttribute("aria-pressed", String(item.id === investigation.id));
+    button.append(
+      Object.assign(document.createElement("span"), { textContent: String(index + 1).padStart(2, "0") }),
+      Object.assign(document.createElement("strong"), { textContent: item.label || "Investigation" }),
+      Object.assign(document.createElement("small"), { textContent: `${item.steps?.length || 0} stops` }),
+    );
+    button.addEventListener("click", () => {
+      state.explorerInvestigation = item.id;
+      const firstPath = item.steps?.[0]?.path;
+      if (firstPath) selectRepositoryPath(data, firstPath);
+      else renderRepositoryRoute(data);
+    });
+    return button;
+  }));
+  el("repo-investigation-question").textContent = investigation.question || "What can this repository teach a newcomer?";
+  el("repo-investigation-why").textContent = investigation.why || "Follow the available evidence without filling the gaps.";
+  el("repo-investigation-finding").textContent = investigation.finding || "The route is a reading suggestion, not a runtime trace.";
+  el("repo-investigation-boundary").textContent = investigation.boundary || "Structural evidence only.";
+  const route = investigation.steps || [];
   el("repo-read-order").replaceChildren(...route.map((item, index) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -1907,12 +2070,13 @@ function renderRepositoryRoute(data) {
     const body = document.createElement("span"); body.className = "repo-route-copy";
     const role = document.createElement("small"); role.textContent = item.role || categoryLabel(item.kind);
     const path = document.createElement("strong"); path.textContent = item.path;
-    const why = document.createElement("em"); why.textContent = item.why || "A tracked clue in the first-reading route.";
-    body.append(role, path, why);
-    if (item.readingGuide) {
+    const prompt = document.createElement("em"); prompt.textContent = item.prompt || item.why || "Inspect this tracked clue before drawing a conclusion.";
+    body.append(role, path, prompt);
+    const guide = repositoryReadOrderItem(map, item.path)?.readingGuide;
+    if (guide) {
       const signal = document.createElement("span"); signal.className = "repo-route-signal";
-      const declarations = item.readingGuide.facts?.find((fact) => /declaration/i.test(fact.label))?.value;
-      const imports = item.readingGuide.facts?.find((fact) => /import|dependenc/i.test(fact.label))?.value;
+      const declarations = guide.facts?.find((fact) => /declaration/i.test(fact.label))?.value;
+      const imports = guide.facts?.find((fact) => /import|dependenc/i.test(fact.label))?.value;
       signal.textContent = `${declarations || 0} signals · ${imports || 0} boundaries`;
       body.append(signal);
     }
@@ -1920,6 +2084,13 @@ function renderRepositoryRoute(data) {
     button.addEventListener("click", () => selectRepositoryPath(data, item.path));
     return button;
   }));
+}
+
+function refreshRepositoryInvestigations(data) {
+  const map = data.repositoryMap;
+  if (!map) return;
+  map.investigations = buildReadingInvestigations(map.readOrder || []);
+  if (state.data === data) renderRepositoryRoute(data);
 }
 
 function repositoryFilterEntries(map) {
@@ -2141,6 +2312,7 @@ async function loadRepositoryPreview(data, entry, requestId) {
     const truncated = String(embedded).length > text.length || Boolean(order?.previewTruncated);
     const guide = order?.readingGuide || buildReadingGuide(entry.path, text, { truncated });
     if (order && guide) order.readingGuide = guide;
+    refreshRepositoryInvestigations(data);
     setRepositoryPreview(data, "ready", { text, lines: text.split("\n").length, truncated, embedded: true, guide });
     return;
   }
@@ -2160,6 +2332,7 @@ async function loadRepositoryPreview(data, entry, requestId) {
     const truncated = text.length > shortened.length;
     const guide = buildReadingGuide(entry.path, shortened, { truncated });
     if (order && guide) order.readingGuide = guide;
+    refreshRepositoryInvestigations(data);
     setRepositoryPreview(data, "ready", { text: shortened, lines: shortened.split("\n").length, truncated, embedded: false, guide });
   } catch (error) {
     if (error.name === "AbortError" || requestId !== state.explorerRequestId) return;

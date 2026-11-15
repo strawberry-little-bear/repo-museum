@@ -11,7 +11,7 @@ It is a static, browser-first experience with a guided route through a connected
 
 - **The foyer**: a plain-language answer to “what is this project for?” before the visitor sees code-shaped details.
 - **First visitor**: one ordinary use of the project, explained in plain language first and technical language second.
-- **Blueprint room**: an Agent or browser reading of the parts that make that use-path possible, anchored by a searchable Repository Atlas and a suggested first-reading route.
+- **Blueprint room**: an Agent or browser reading of the parts that make that use-path possible, anchored by a searchable Repository Atlas and evidence-backed cross-file investigations.
 - **History hall**: commits grouped by natural day into an evidence-backed origin / turning point / now arc. A busy day appears once, and selecting a chapter reveals its reason, lesson, sampling coverage, and ordered evidence trail.
 - **Ecosystem room**: direct dependencies surfaced from common manifest files. It disappears when the public scan finds no specimens.
 - **Exit workshop**: three questions that let a visitor repeat the project's story without memorising a metric list, with immediate feedback and room completion, followed by a small commit pulse.
@@ -26,22 +26,23 @@ Loading, error, and exhibit content are mutually exclusive states, so the archiv
 
 ## Repository Atlas
 
-The Blueprint room now includes a Repository Atlas designed as an archival reading desk rather than a generic file browser. It answers a newcomer's practical question: **what should I read next, and why?**
+The Blueprint room now includes a Repository Atlas designed as an archival reading desk rather than a generic file browser. It answers a newcomer's practical question: **what can I investigate, which files support the answer, and where does the evidence stop?**
 
 - The browser indexes every path returned by GitHub's recursive tree; the local Agent indexes every path in the tracked HEAD tree.
-- A suggested route moves from public promise to dependency boundary, entry point, implementation, public surface, example, test, and maintenance path. Missing stops are omitted instead of fabricated.
-- Every route stop explains its reading role and links to the exact tracked path.
+- The Atlas turns the linear first-reading route into three cross-file investigations when the available evidence supports them: **Trace the public path**, **Check the promise**, and **Map the technical boundary**.
+- Each investigation states its question, why the route exists, and a field-note finding assembled from the selected files. Every stop turns a path into a concrete reading task and links back to that exact tracked path.
+- Investigations are derived from documentation, manifest, entry point, implementation, public surface, example, test, and automation categories. Missing categories reduce the route instead of producing a fabricated complete sequence.
 - Each route stop can carry a `readingGuide` generated with the deterministic `text-structure/v1` lens. For source files it surfaces top-level classes, structs, interfaces, functions, and imports with line numbers; for manifests it surfaces scripts, modules, and declared packages; for documents it surfaces headings and the first substantive passage.
 - Reading-lens entries are clickable. Selecting a declaration or import scrolls the code pane to that numbered line and briefly highlights it, so “start here” remains traceable instead of becoming decorative advice.
 - Source declarations are ranked deterministically before presentation: public types, core objects, project-named symbols, and entry-like functions come before private or incidental helpers. This is a reading heuristic, not an execution trace or a claim about which code is most important.
 - Every indexed path is searchable and filterable. Selecting a folder narrows the path index; selecting a file loads a bounded text preview.
 - The local Agent embeds small text previews in the artifact. The public browser fetches readable files on demand from GitHub raw, with binary, lock-file, minified-file, and oversized-file fallbacks.
-- Browser scans and local Agent artifacts use the same `repositoryMap` contract: totals, extensions, directories, indexed entries, route stops, and optional previews.
+- Browser scans and local Agent artifacts use the same `repositoryMap` contract: totals, extensions, directories, indexed entries, route stops, investigations, findings, boundaries, and optional previews.
 - If GitHub returns a partial recursive tree, the atlas says so instead of presenting the partial list as the whole repository.
-- Reading roles and guides are inferred from names, paths, and the readable text preview. The route is a reading suggestion, not evidence that a file executes, that a dependency is used at runtime, or that the project has been run.
+- Reading roles, investigations, prompts, and findings are inferred from names, paths, and bounded text previews. They are reading suggestions, not resolved runtime call paths, proof that a dependency is used, or evidence that the project has been run, tested, or built.
 - Reading guides scan at most the first 60,000 readable characters. The guide states this boundary, and older artifacts without `readingGuide` still work because the browser derives the same lens from any loaded preview.
 
-The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, `repositoryMap`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag.
+The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, `repositoryMap`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag. A field note may summarize what the files jointly reveal, but it must also name what the structural scan did not establish.
 
 ## Run locally
 
