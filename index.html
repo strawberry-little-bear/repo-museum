@@ -116,12 +116,34 @@
           </div>
 
           <div class="error-state" id="error-state" hidden>
-            <span class="error-mark">!</span>
-            <div>
-              <strong>That gallery is closed for now.</strong>
-              <p id="error-message">We could not find that public repository.</p>
+            <div class="error-state-main">
+              <span class="error-mark" aria-hidden="true">!</span>
+              <div class="error-copy">
+                <strong>That gallery is closed for now.</strong>
+                <p id="error-message">We could not find that public repository.</p>
+              </div>
+              <div class="error-actions">
+                <button type="button" class="secondary-button" id="error-retry-button">Try again</button>
+                <button type="button" class="secondary-button" id="error-demo-button">Open the Agent demo</button>
+              </div>
             </div>
-            <button type="button" class="secondary-button" id="error-demo-button">Open the demo</button>
+            <details class="token-recovery" id="token-recovery">
+              <summary><span>GitHub limit?</span> Add a temporary read-only token</summary>
+              <div class="token-recovery-body">
+                <p>Anonymous GitHub API requests are limited. A fine-grained token with public-repository read access can continue this scan.</p>
+                <form class="token-form" id="token-form">
+                  <label for="github-token">GitHub token</label>
+                  <div class="token-form-row">
+                    <input id="github-token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" />
+                    <button type="submit" class="primary-button">Use this session</button>
+                  </div>
+                </form>
+                <div class="token-recovery-meta">
+                  <span>Kept in this tab's session storage. Sent only to api.github.com. Never added to a share link.</span>
+                  <button type="button" class="text-button" id="forget-token-button" hidden>Forget token</button>
+                </div>
+              </div>
+            </details>
           </div>
 
           <div id="museum-content">

@@ -44,6 +44,10 @@ The Blueprint room now includes a Repository Atlas designed as an archival readi
 
 The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, `repositoryMap`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag. A field note may summarize what the files jointly reveal, but it must also name what the structural scan did not establish.
 
+The deployed demo also carries an Agent-curated collection for Repo Museum itself. The Pages workflow runs the local skill against a full-history checkout, writes `collections/repo-museum.json`, and uses that artifact before attempting a live browser scan. This makes the project's own exhibition available even when anonymous GitHub API traffic is limited, while keeping the same evidence contract and renderer as every other collection.
+
+For public repositories without a built-in collection, a GitHub API limit no longer dead-ends the visit. The error state can accept a fine-grained token with public-repository read access. The token is kept only in the current tab's `sessionStorage`, sent only to `api.github.com`, and never copied into a share link. It is not a backend credential and is not required for the built-in Agent demo.
+
 ## Run locally
 
 This is a dependency-free static site. Serve the folder with any local HTTP server so browser fetch requests work:
@@ -68,6 +72,15 @@ This creates `.repo-museum/museum.json`. It uses only local Git and the Python s
 http://localhost:8000/?museum=.repo-museum%2Fmuseum.json
 ```
 
+After generating a collection that should ship with the site, stage it as a public example:
+
+```bash
+mkdir -p collections
+cp .repo-museum/museum.json collections/repo-museum.json
+```
+
+The Pages workflow regenerates that same path from a full-history checkout during every deployment, so the hosted demo reflects the latest tracked history without committing a mutable local artifact.
+
 The reusable skill instructions live in `skills/repo-museum/SKILL.md`. The renderer contract, including the optional `repositoryMap`, is documented in `schema/museum-data.schema.json`. Artifacts created before the atlas remain valid; when `repositoryMap` is absent, the optional Atlas exhibit is hidden. Artifacts with a `repositoryMap` but without `readingGuide` remain valid too; the Atlas builds the structural lens from the preview at runtime.
 
 ## Share a collection
@@ -78,11 +91,17 @@ Use a GitHub owner/repository or full GitHub URL, for example:
 https://strawberry-little-bear.github.io/repo-museum/?repo=vitejs%2Fvite
 ```
 
-The share button copies the current collection URL. Only public repositories are supported in this first release. GitHub API rate limits and large repository sizes can affect the amount of evidence available to the browser.
+The share button copies the current collection URL. Built-in Agent collections share the artifact path; live scans share the repository identity. Only public repositories are supported in this first release. Anonymous GitHub API limits and large repository sizes can affect the amount of evidence available to a live browser scan; the recovery form can retry with a tab-local read-only token.
+
+The hosted project collection is available directly at:
+
+```text
+https://strawberry-little-bear.github.io/repo-museum/?museum=collections%2Frepo-museum.json
+```
 
 ## Deploy
 
-The workflow in `.github/workflows/deploy-pages.yml` deploys the repository root to GitHub Pages whenever `main` changes. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**.
+The workflow in `.github/workflows/deploy-pages.yml` deploys the repository to GitHub Pages whenever `main` changes. It checks out the full history, runs the Repo Museum skill, stages the static site under `_site`, and publishes the generated `collections/repo-museum.json` alongside the renderer. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**.
 
 ## Project shape
 

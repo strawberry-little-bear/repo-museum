@@ -23,14 +23,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Curate the built-in Agent collection
+        run: python3 skills/repo-museum/scripts/build_museum.py
+
+      - name: Stage the static site
+        run: |
+          mkdir -p _site/collections
+          rsync -a --exclude='.git' --exclude='.github' --exclude='_site' --exclude='.repo-museum' ./ _site/
+          cp .repo-museum/museum.json _site/collections/repo-museum.json
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment

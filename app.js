@@ -1,4 +1,9 @@
 const API_ROOT = "https://api.github.com";
+const GITHUB_TOKEN_KEY = "repo-museum.github-token";
+const BUILT_IN_COLLECTIONS = {
+  "strawberry-little-bear/repo-museum": "collections/repo-museum.json",
+};
+let volatileGithubToken = "";
 
 const demoData = {
   repo: "vitejs/vite",
@@ -210,8 +215,31 @@ function parseRepo(input) {
   return `${parts[0]}/${parts[1]}`;
 }
 
+function readGithubToken() {
+  if (volatileGithubToken) return volatileGithubToken;
+  try { return sessionStorage.getItem(GITHUB_TOKEN_KEY) || ""; }
+  catch { return ""; }
+}
+
+function saveGithubToken(token) {
+  volatileGithubToken = token;
+  try {
+    if (token) sessionStorage.setItem(GITHUB_TOKEN_KEY, token);
+    else sessionStorage.removeItem(GITHUB_TOKEN_KEY);
+  } catch {
+    // Keep the in-memory fallback when session storage is unavailable.
+  }
+}
+
+function githubApiHeaders() {
+  const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  const token = readGithubToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 function githubFetchPage(path) {
-  return fetch(`${API_ROOT}${path}`, { headers: { Accept: "application/vnd.github+json" } }).then(async (response) => {
+  return fetch(`${API_ROOT}${path}`, { headers: githubApiHeaders() }).then(async (response) => {
     if (!response.ok) {
       const error = new Error(response.status === 404 ? "Repository not found or not public." : `GitHub returned ${response.status}.`);
       error.status = response.status;
@@ -1775,12 +1803,18 @@ function showContent() {
   el("museum-content").hidden = false;
 }
 
-function showError(message) {
+function showError(message, status = 0) {
   el("loading-state").hidden = true;
   el("museum-content").hidden = true;
   el("error-state").hidden = false;
   el("collection-status").textContent = `Collection unavailable · ${state.currentRepo}`;
   el("error-message").textContent = message;
+  const tokenDetails = el("token-recovery");
+  const tokenApplies = status === 401 || status === 403;
+  tokenDetails.hidden = !tokenApplies;
+  tokenDetails.open = tokenApplies;
+  el("forget-token-button").hidden = !readGithubToken();
+  if (tokenApplies && !readGithubToken()) window.setTimeout(() => el("github-token").focus({ preventScroll: true }), 80);
 }
 
 function renderStats(data) {
@@ -2938,29 +2972,72 @@ async function loadArtifact(path) {
   } finally { el("refresh-button").classList.remove("is-loading"); }
 }
 
+async function loadBuiltInCollection(repo) {
+  const artifactPath = BUILT_IN_COLLECTIONS[repo];
+  if (!artifactPath) return false;
+  try {
+    const data = await fetchMuseumArtifact(artifactPath);
+    if (data.repo !== repo) return false;
+    state.mode = "agent";
+    state.artifactPath = artifactPath;
+    state.currentRepo = repo;
+    render(data);
+    showContent();
+    document.title = `${data.name} · Repo Museum`;
+    history.replaceState({}, "", `?museum=${encodeURIComponent(artifactPath)}`);
+    document.querySelector("#exhibitions").scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadRepo(repo) {
   if (state.isPlaying) stopOpera();
   state.mode = "public"; state.artifactPath = null; state.currentRepo = repo; setLoading(true);
   el("refresh-button").classList.add("is-loading");
-  el("collection-status").textContent = `Reading ${repo} · public records`;
+  el("collection-status").textContent = `Reading ${repo} · checking Agent archive and public records`;
   try {
+    if (await loadBuiltInCollection(repo)) return;
+    state.mode = "public"; state.artifactPath = null; state.currentRepo = repo;
     const data = await fetchMuseumData(repo);
     render(data); showContent(); document.title = `${data.name} · Repo Museum`;
     history.replaceState({}, "", `?repo=${encodeURIComponent(repo)}`);
     document.querySelector("#exhibitions").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
-    const message = error.status === 403
-      ? "GitHub is temporarily rate-limiting anonymous visitors. Try again soon, or open the demo collection while the archive cools down."
-      : error.message || "We could not read that repository.";
-    showError(message);
+    const usingToken = Boolean(readGithubToken());
+    const message = error.status === 401
+      ? "GitHub rejected that token. Check that it is valid and has public-repository read access."
+      : error.status === 403
+        ? usingToken
+          ? "GitHub rate-limited this token or it lacks access to this repository. Try again later, or replace the token."
+          : "GitHub is temporarily rate-limiting anonymous visitors. Retry shortly, use a temporary read-only token, or open the Agent demo."
+        : error.message || "We could not read that repository.";
+    showError(message, error.status);
   } finally {
     el("refresh-button").classList.remove("is-loading");
   }
 }
 
-function openDemo() {
+async function openDemo() {
   if (state.isPlaying) stopOpera();
-  state.mode = "demo"; state.artifactPath = null; render(demoData); showContent(); el("repo-input").value = demoData.repo; history.replaceState({}, "", window.location.pathname); document.title = "Repo Museum - an exhibition for every repository";
+  setLoading(true);
+  el("refresh-button").classList.add("is-loading");
+  el("collection-status").textContent = "Opening the built-in Agent collection";
+  const artifactPath = BUILT_IN_COLLECTIONS["strawberry-little-bear/repo-museum"];
+  try {
+    const data = await fetchMuseumArtifact(artifactPath);
+    state.mode = "agent"; state.artifactPath = artifactPath;
+    render(data); showContent(); el("repo-input").value = data.repo;
+    history.replaceState({}, "", `?museum=${encodeURIComponent(artifactPath)}`);
+    document.title = `${data.name} · Repo Museum`;
+    document.querySelector("#exhibitions").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch {
+    state.mode = "demo"; state.artifactPath = null; render(demoData); showContent(); el("repo-input").value = demoData.repo;
+    history.replaceState({}, "", window.location.pathname); document.title = "Repo Museum - an exhibition for every repository";
+  } finally {
+    el("refresh-button").classList.remove("is-loading");
+  }
 }
 
 function showToast(message) {
@@ -3024,6 +3101,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (button) toggleRoomUnderstanding(button.dataset.room);
   });
   el("demo-button").addEventListener("click", openDemo); el("error-demo-button").addEventListener("click", openDemo);
+  el("error-retry-button").addEventListener("click", () => {
+    if (state.mode === "agent" && state.artifactPath) loadArtifact(state.artifactPath);
+    else if (state.mode === "public" && state.currentRepo) loadRepo(state.currentRepo);
+    else openDemo();
+  });
+  el("token-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const token = el("github-token").value.trim();
+    if (!token) { showToast("Paste a GitHub token first."); el("github-token").focus(); return; }
+    saveGithubToken(token);
+    el("github-token").value = "";
+    el("forget-token-button").hidden = false;
+    showToast("Token saved for this tab. Retrying the repository scan.");
+    loadRepo(state.currentRepo);
+  });
+  el("forget-token-button").addEventListener("click", () => {
+    saveGithubToken("");
+    el("forget-token-button").hidden = true;
+    el("github-token").value = "";
+    showToast("GitHub token forgotten for this tab.");
+  });
   el("random-button").addEventListener("click", () => { const repos = ["sindresorhus/ky", "tailwindlabs/tailwindcss", "denoland/deno", "pallets/flask", "rust-lang/rustlings"]; const repo = repos[Math.floor(Math.random() * repos.length)]; el("repo-input").value = repo; loadRepo(repo); });
   document.querySelectorAll(".index-item").forEach((button) => button.addEventListener("click", () => navigateToRoom(button.dataset.target)));
   document.querySelectorAll(".room-next, .room-back").forEach((button) => button.addEventListener("click", () => navigateToRoom(button.dataset.next)));
