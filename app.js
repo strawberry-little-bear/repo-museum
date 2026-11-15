@@ -2940,7 +2940,7 @@ async function loadArtifact(path) {
 
 async function loadRepo(repo) {
   if (state.isPlaying) stopOpera();
-  state.mode = "public"; state.artifactPath = null; setLoading(true);
+  state.mode = "public"; state.artifactPath = null; state.currentRepo = repo; setLoading(true);
   el("refresh-button").classList.add("is-loading");
   el("collection-status").textContent = `Reading ${repo} · public records`;
   try {
