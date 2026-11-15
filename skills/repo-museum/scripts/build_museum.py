@@ -212,6 +212,15 @@ def clip_sentence(text: str, limit: int = 240) -> str:
     return f"{shortened}…"
 
 
+def clip_reading_guide(text: str, limit: int = 300) -> str:
+    """Keep a full guide passage, shortening only at the character limit."""
+    text = re.sub(r"\s+", " ", strip_markdown_inline(text)).strip()
+    if len(text) <= limit:
+        return text
+    shortened = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{shortened or text[: limit - 1]}…"
+
+
 def description_from_readme(markdown: str, limit: int = 240) -> str:
     """Select the first credible prose paragraph, never the README's title."""
     for paragraph in markdown_paragraphs(markdown):
@@ -265,6 +274,20 @@ PREVIEW_BLOCKED_EXTENSIONS = {
 LOCK_FILES = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "cargo.lock", "poetry.lock", "uv.lock", "composer.lock", "gemfile.lock"}
 MAX_PREVIEW_BYTES = 2_000_000
 MAX_PREVIEW_CHARS = 60_000
+
+SOURCE_LANGUAGES = {
+    ".py": "Python", ".js": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript",
+    ".jsx": "JavaScript", ".ts": "TypeScript", ".tsx": "TypeScript", ".vue": "Vue",
+    ".svelte": "Svelte", ".go": "Go", ".rs": "Rust", ".rb": "Ruby", ".java": "Java",
+    ".kt": "Kotlin", ".kts": "Kotlin", ".swift": "Swift", ".c": "C", ".h": "C",
+    ".cc": "C++", ".cpp": "C++", ".hpp": "C++", ".cs": "C#", ".php": "PHP",
+    ".scala": "Scala", ".ex": "Elixir", ".exs": "Elixir", ".erl": "Erlang",
+    ".hs": "Haskell", ".lua": "Lua", ".r": "R", ".jl": "Julia", ".sh": "Shell",
+    ".bash": "Shell", ".zsh": "Shell", ".ps1": "PowerShell", ".sql": "SQL",
+    ".css": "CSS", ".scss": "Sass", ".sass": "Sass", ".less": "Less",
+    ".md": "Markdown", ".mdx": "Markdown", ".rst": "reStructuredText", ".adoc": "AsciiDoc",
+    ".json": "JSON", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
+}
 
 
 def role_for_path(path: str, is_folder: bool = False) -> str:
@@ -493,6 +516,366 @@ def choose_read_path(files: list[str], predicate: Any, project_name: str = "", c
     return min(candidates, key=lambda path: path_read_preference(path, project_name, context)) if candidates else ""
 
 
+def guide_line_text(value: str, limit: int = 180) -> str:
+    return re.sub(r"\s+$", "", value.replace("\t", "  "))[:limit]
+
+
+def guide_line_number(lines: list[str], fragment: str) -> int:
+    needle = str(fragment or "")[:80]
+    if not needle:
+        return 1
+    for index, line in enumerate(lines):
+        if needle in line:
+            return index + 1
+    return 1
+
+
+def guide_language(path: str) -> str:
+    basename = path_basename(path).lower()
+    if basename == "dockerfile":
+        return "Dockerfile"
+    if basename == "makefile":
+        return "Makefile"
+    return SOURCE_LANGUAGES.get(path_extension(path), "Plain text")
+
+
+def reading_guide_symbol_rank(symbol: dict[str, Any], path: str) -> int:
+    name = str(symbol.get("name") or "")
+    kind = str(symbol.get("kind") or "").lower()
+    stem = Path(path).stem.lower()
+    score = 0 if kind in {"class", "struct", "interface", "trait", "enum", "type", "component", "module"} else 10 if kind in {"object", "implementation"} else 20 if kind == "function" else 50
+    if name.startswith("_") and not (name.startswith("__") and name.endswith("__")):
+        score += 55
+    if re.match(r"^(get|set|is|has|should|can|to|from|with|as|of|on|by|format|shorten)_", name, re.I):
+        score += 14
+    if len(name) <= 3:
+        score += 10
+    if re.match(r"^(main|app|run|start|create|new|init|default|serve|server|render|load|build|parse|handle|use|engine|client|router|context)", name, re.I):
+        score -= 12
+    if name.lower() == stem:
+        score -= 25
+    return score * 10_000 + (int(symbol.get("line") or 0))
+
+
+def build_reading_guide(path: str, text: str, truncated: bool = False) -> dict[str, Any] | None:
+    """Extract a conservative reading lens from the same text exposed in the preview."""
+    source = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not source.strip():
+        return None
+    lines = source.split("\n")
+    basename = path_basename(path).lower()
+    category = repository_path_category(path)
+    language = guide_language(path)
+    manifest = basename in REPOSITORY_MANIFESTS or basename in {"cargo.toml", "requirements.txt", "go.mod", "pyproject.toml", "package.json"}
+    document = path_extension(path) in DOCUMENT_EXTENSIONS or category == "documentation"
+
+    if manifest:
+        symbols: list[dict[str, Any]] = []
+        imports: list[dict[str, Any]] = []
+        seen_symbols: set[str] = set()
+        seen_imports: set[str] = set()
+
+        def add_symbol(name: str, kind: str, line: int, signature: str) -> None:
+            key = f"{kind}:{name}"
+            if not name or key in seen_symbols or len(symbols) >= 12:
+                return
+            seen_symbols.add(key)
+            symbols.append({"name": name[:90], "kind": kind, "line": line, "signature": guide_line_text(signature)})
+
+        def add_import(name: str, line: int, detail: str = "") -> None:
+            if not name or name in seen_imports or len(imports) >= 12:
+                return
+            seen_imports.add(name)
+            imports.append({"source": name[:120], "names": [detail[:80]] if detail else [], "line": line})
+
+        if basename == "package.json":
+            try:
+                parsed = json.loads(source)
+                scripts = list((parsed.get("scripts") or {}).items())
+                dependencies = {**parsed.get("dependencies", {}), **parsed.get("devDependencies", {})}
+                for name, command in scripts[:6]:
+                    add_symbol(str(name), "script", guide_line_number(lines, f'"{name}"'), f'"{name}": "{command}"')
+                for name, version in list(dependencies.items())[:8]:
+                    add_import(str(name), guide_line_number(lines, f'"{name}"'), str(version))
+                command_names = [str(name) for name, _ in scripts[:3]]
+                headline = f"This manifest declares {len(scripts)} command{'s' if len(scripts) != 1 else ''} and {len(dependencies)} dependency entr{'y' if len(dependencies) == 1 else 'ies'}."
+                notice = (
+                    f"Start with the {natural_list([f'“{name}”' for name in command_names])} command{'s' if len(command_names) != 1 else ''}; they connect the repository to a reproducible workflow."
+                    if command_names
+                    else "No command scripts are declared here, so read the dependency entries as the project's visible capability boundary."
+                )
+            except (json.JSONDecodeError, TypeError):
+                headline = "This package manifest is not valid JSON in the readable sample."
+                notice = "The original manifest is still linked below; the museum does not infer commands from malformed JSON."
+        elif basename == "go.mod":
+            for index, line in enumerate(lines):
+                module = re.match(r"^\s*module\s+(\S+)", line)
+                if module:
+                    add_symbol(module.group(1), "module", index + 1, line)
+                requirement = re.match(r"^\s*(?:require\s+)?([A-Za-z0-9._~-]+\.[A-Za-z]{2,}/\S+)\s+v?\S+", line)
+                if requirement and not requirement.group(1).startswith("//"):
+                    add_import(requirement.group(1), index + 1)
+            module = next((item for item in symbols if item["kind"] == "module"), None)
+            headline = (
+                f"This module manifest names {module['name']} as the import root and exposes {len(imports)} visible module requirement{'s' if len(imports) != 1 else ''}."
+                if module
+                else f"This Go module manifest exposes {len(imports)} readable module requirement{'s' if len(imports) != 1 else ''}."
+            )
+            notice = (
+                f"Begin with the module path {module['name']}, then inspect the requirements to see which external packages the source tree can borrow."
+                if module
+                else "Begin with the declared requirements; they form the project's visible external capability boundary."
+            )
+        elif basename == "cargo.toml":
+            for index, line in enumerate(lines):
+                package_name = re.match(r"^\s*name\s*=\s*[\"']([^\"']+)[\"']", line)
+                if package_name and not symbols:
+                    add_symbol(package_name.group(1), "package", index + 1, line)
+                dependency = re.match(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(?:\{[^}]*version\s*=\s*)?[\"']([^\"']+)[\"']", line)
+                if dependency and dependency.group(1) not in {"name", "version", "edition", "rust-version", "description"}:
+                    add_import(dependency.group(1), index + 1, dependency.group(2))
+            headline = f"This Cargo manifest declares {len(imports)} visible dependency entr{'y' if len(imports) == 1 else 'ies'} around {symbols[0]['name'] if symbols else 'the crate'}."
+            notice = "Read the package identity first, then the dependency sections to see which capabilities the Rust crate delegates."
+        elif basename == "pyproject.toml":
+            records = toml_assignment_records(source)
+            project_name = next((record for record in records if record[0] == "project" and record[1] == "name"), None)
+            if project_name:
+                add_symbol(toml_string_value(project_name[2]), "package", project_name[3], lines[project_name[3] - 1])
+            commands = [record for record in records if record[0] in {"project.scripts", "tool.poetry.scripts"}][:8]
+            for section, key, _value, line in commands:
+                add_symbol(key, "script", line, lines[line - 1])
+            for dependency in toml_dependency_entries(source, "pyproject.toml")[:12]:
+                add_import(str(dependency.get("name", "")), int(dependency.get("line", 1)), str(dependency.get("version", "")))
+            package = next((symbol for symbol in symbols if symbol["kind"] == "package"), None)
+            headline = f"This Python project manifest establishes {package['name'] if package else 'the package'}, {len(imports)} visible dependency entr{'y' if len(imports) == 1 else 'ies'}, and {len(commands)} command{'s' if len(commands) != 1 else ''}."
+            notice = (
+                f"Start with the {natural_list([f'“{section_key}”' for _section, section_key, _value, _line in commands[:3]])} command{'s' if len(commands) != 1 else ''}, then read the dependency groups as the project's visible capability boundary."
+                if commands
+                else "Read the package identity, then the dependency groups: together they define what the project claims and what it borrows."
+            )
+        else:
+            for index, line in enumerate(lines):
+                requirement = re.match(r"^\s*([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(?:[<>=!~].*)?$", line)
+                if requirement and not requirement.group(1).startswith("#"):
+                    add_import(requirement.group(1), index + 1)
+            headline = f"This manifest lists {len(imports)} visible dependency entr{'y' if len(imports) == 1 else 'ies'}."
+            notice = "Use the declarations as a capability boundary, not as proof that every package is active in the same code path."
+        return {
+            "model": "text-structure/v1",
+            "mode": "manifest",
+            "language": language,
+            "headline": clip_reading_guide(headline, 220),
+            "notice": clip_reading_guide(notice, 300),
+            "facts": [{"label": "Declarations", "value": str(len(symbols))}, {"label": "Dependencies", "value": str(len(imports))}, {"label": "Lines", "value": str(len(lines))}],
+            "symbols": symbols,
+            "imports": imports,
+            "boundary": "Structural scan of the readable preview only; the manifest continues beyond this sample." if truncated else "Structural scan of the readable manifest; no install or command execution was observed.",
+        }
+
+    if document:
+        headings: list[dict[str, Any]] = []
+        first_paragraph = ""
+        in_fence = False
+        for index, raw in enumerate(lines):
+            stripped = raw.strip()
+            if re.match(r"^(?:```|~~~)", stripped):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            heading = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", raw)
+            if heading and len(headings) < 24:
+                headings.append({"name": strip_markdown_inline(heading.group(2))[:100], "kind": "section", "line": index + 1, "signature": guide_line_text(stripped)})
+                continue
+            if not first_paragraph and stripped and not re.match(r"^\s*(?:[-+*]|\d+[.)])\s+", raw) and not re.match(r"^\[[^\]]+\]:", stripped) and not stripped.startswith(("|", "<", ">")):
+                cleaned = strip_markdown_inline(stripped)
+                if len(cleaned) >= 28:
+                    first_paragraph = cleaned
+        primary = headings[0]["name"] if headings else path_basename(path)
+        headline = (
+            f"This document opens with “{primary}” and is organised into {len(headings)} visible heading{'s' if len(headings) != 1 else ''}."
+            if headings
+            else f"This document offers a {len(lines)}-line readable record without Markdown headings."
+        )
+        notice = (
+            f"Start with the section “{primary}”. The first substantive passage says: “{clip_reading_guide(first_paragraph, 180)}”"
+            if first_paragraph
+            else f"Start at “{primary}”; the scan did not find a plain introductory paragraph to quote without risking misrepresentation."
+        )
+        return {
+            "model": "text-structure/v1",
+            "mode": "document",
+            "language": language,
+            "headline": clip_reading_guide(headline, 220),
+            "notice": clip_reading_guide(notice, 340),
+            "facts": [{"label": "Sections", "value": str(len(headings))}, {"label": "Lines", "value": str(len(lines))}],
+            "symbols": headings,
+            "imports": [],
+            "boundary": "Structural scan of the readable preview only; later sections may be outside this sample." if truncated else "Structural scan of the readable document; quoted language remains the project's own wording.",
+        }
+
+    symbols = []
+    imports = []
+    seen_symbols = set()
+    seen_imports = set()
+
+    def add_symbol(name: str, kind: str, line: int, signature: str) -> None:
+        key = f"{kind}:{name}"
+        if not name or key in seen_symbols or len(symbols) >= 36:
+            return
+        seen_symbols.add(key)
+        symbols.append({"name": name[:100], "kind": kind, "line": line, "signature": guide_line_text(signature, 200)})
+
+    def add_import(name: str, line: int, names: list[str] | None = None) -> None:
+        if not name or name in seen_imports or len(imports) >= 24:
+            return
+        seen_imports.add(name)
+        imports.append({"source": name[:160], "line": line, "names": [item[:70] for item in (names or [])[:5]]})
+
+    extension = path_extension(path).lower()
+    in_go_import_block = False
+    in_comment_block = False
+    for index, raw in enumerate(lines):
+        line = raw.strip()
+        line_number = index + 1
+        if not line:
+            continue
+        if in_comment_block:
+            if "*/" in line:
+                in_comment_block = False
+            continue
+        if line.startswith("/*"):
+            if "*/" not in line:
+                in_comment_block = True
+            continue
+        top_level = raw == raw.lstrip()
+        if extension == ".py":
+            declaration = re.match(r"^(?:async\s+)?(class|def)\s+([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*:?", raw)
+            if declaration:
+                add_symbol(declaration.group(2), "class" if declaration.group(1) == "class" else "function", line_number, line)
+            from_import = re.match(r"^from\s+([.\w]+)\s+import\s+(.+)$", line)
+            if from_import:
+                names = [item.strip().split(" as ")[0] for item in from_import.group(2).replace("(", "").replace(")", "").split(",") if item.strip()]
+                add_import(from_import.group(1), line_number, names)
+            plain_import = re.match(r"^import\s+(.+)$", line)
+            if plain_import:
+                for name in plain_import.group(1).split(","):
+                    add_import(name.strip().split(" as ")[0], line_number)
+        elif extension in {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte"}:
+            from_import = re.match(r"^import\s+(.+?)\s+from\s+[\"']([^\"']+)[\"']", line)
+            if from_import:
+                add_import(from_import.group(2), line_number, [re.sub(r"[{}*]", "", from_import.group(1)).strip()])
+            side_import = re.match(r"^import\s+[\"']([^\"']+)[\"']", line)
+            if side_import:
+                add_import(side_import.group(1), line_number)
+            required = re.search(r"(?:require|import)\(\s*[\"']([^\"']+)[\"']\s*\)", line)
+            if required:
+                add_import(required.group(1), line_number)
+            if top_level:
+                fn = re.match(r"^(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)", raw)
+                cls = re.match(r"^(?:export\s+(?:default\s+)?)?class\s+([A-Za-z_$][\w$]*)", raw)
+                typed = re.match(r"^(?:export\s+)?(interface|type|enum)\s+([A-Za-z_$][\w$]*)", raw)
+                arrow = re.match(r"^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>", raw)
+                plain_fn = re.match(r"^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\b", raw)
+                if fn:
+                    add_symbol(fn.group(1), "function", line_number, line)
+                if cls:
+                    add_symbol(cls.group(1), "class", line_number, line)
+                if typed:
+                    add_symbol(typed.group(2), typed.group(1), line_number, line)
+                if arrow:
+                    add_symbol(arrow.group(1), "component" if arrow.group(1)[:1].isupper() else "function", line_number, line)
+                if plain_fn:
+                    add_symbol(plain_fn.group(1), "function", line_number, line)
+        elif extension == ".go":
+            if re.match(r"^import\s*\(", line):
+                in_go_import_block = True
+                continue
+            if in_go_import_block and line == ")":
+                in_go_import_block = False
+                continue
+            if in_go_import_block:
+                imported = re.search(r"(?:[._A-Za-z]\w*\s+)?[\"']([^\"']+)[\"']", line)
+                if imported:
+                    add_import(imported.group(1), line_number)
+            single_import = re.match(r"^import\s+(?:[._A-Za-z]\w*\s+)?[\"']([^\"']+)[\"']", line)
+            if single_import:
+                add_import(single_import.group(1), line_number)
+            type_decl = re.match(r"^type\s+([A-Za-z_]\w*)\s+(struct|interface)\b", raw)
+            function = re.match(r"^func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(", raw)
+            if type_decl:
+                add_symbol(type_decl.group(1), type_decl.group(2), line_number, line)
+            if function:
+                add_symbol(function.group(1), "function", line_number, line)
+        elif extension == ".rs":
+            imported = re.match(r"^use\s+([^;]+);", line)
+            if imported:
+                add_import("::".join(imported.group(1).split("::")[:2]), line_number, [imported.group(1)])
+            declaration = re.match(r"^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(fn|struct|enum|trait|mod)\s+([A-Za-z_]\w*)", raw)
+            implementation = re.match(r"^impl(?:<[^>]+>)?\s+(?:[^ ]+\s+for\s+)?([A-Za-z_]\w*)", raw)
+            if declaration:
+                add_symbol(declaration.group(2), declaration.group(1), line_number, line)
+            if implementation:
+                add_symbol(implementation.group(1), "implementation", line_number, line)
+        elif extension == ".rb":
+            declaration = re.match(r"^\s*(class|module|def)\s+([A-Za-z_][\w:!?=]*)", raw)
+            if declaration:
+                add_symbol(declaration.group(2), declaration.group(1), line_number, line)
+            required = re.match(r"^require(?:_relative)?\s+[\"']([^\"']+)[\"']", line)
+            if required:
+                add_import(required.group(1), line_number)
+        elif extension in {".java", ".kt", ".kts", ".cs", ".scala"}:
+            imported = re.match(r"^import\s+([\w.*]+);?", line)
+            if imported:
+                add_import(imported.group(1), line_number)
+            declaration = re.match(r"^\s*(?:(?:public|private|protected|internal|open|abstract|final|static|sealed|data)\s+)*(class|interface|enum|record|fun|object)\s+([A-Za-z_]\w*)", raw)
+            if declaration:
+                add_symbol(declaration.group(2), declaration.group(1), line_number, line)
+        elif extension == ".php":
+            required = re.search(r"(?:require|include)(?:_once)?\s*\(?\s*[\"']([^\"']+)[\"']", line)
+            if required:
+                add_import(required.group(1), line_number)
+            declaration = re.match(r"^\s*(?:abstract\s+|final\s+)?(class|interface|trait|function)\s+([A-Za-z_]\w*)", raw)
+            if declaration:
+                add_symbol(declaration.group(2), declaration.group(1), line_number, line)
+        elif extension in {".sh", ".bash", ".zsh"}:
+            function = re.match(r"^(?:function\s+)?([A-Za-z_][\w-]*)\s*(?:\(\))?\s*\{", raw)
+            if function:
+                add_symbol(function.group(1), "function", line_number, line)
+
+    if not symbols:
+        fallback = next((line for line in lines if line.strip() and not line.strip().startswith(("#", "/", "*"))), "")
+        if fallback:
+            add_symbol(path_basename(path), "file", guide_line_number(lines, fallback.strip()), fallback)
+    ranked_symbols = sorted(symbols, key=lambda item: reading_guide_symbol_rank(item, path))
+    symbol_names = [item["name"] for item in ranked_symbols[:3]]
+    import_sources = [item["source"] for item in imports[:3]]
+    headline = (
+        f"{language} source. The structural scan finds {len(ranked_symbols)} top-level declaration{'s' if len(ranked_symbols) != 1 else ''}"
+        f"{f', led by {natural_list(symbol_names)}' if symbol_names else ''}."
+        if ranked_symbols
+        else f"{language} source. The structural scan finds no named top-level declaration pattern."
+    )
+    first = ranked_symbols[0] if ranked_symbols else None
+    notice = (
+        f"Start with {first['kind']} {first['name']} at line {first['line']}."
+        f"{f' It also borrows from {natural_list(import_sources)}.' if import_sources else ''} Read the declaration sites as navigation clues, not as proof of the runtime path."
+        if first
+        else f"Read the file as a supporting record;{f' its visible imports point to {natural_list(import_sources)}.' if import_sources else ' no top-level declaration or import pattern is available.'}"
+    )
+    return {
+        "model": "text-structure/v1",
+        "mode": "source",
+        "language": language,
+        "headline": clip_reading_guide(headline, 230),
+        "notice": clip_reading_guide(notice, 320),
+        "facts": [{"label": "Declarations", "value": str(len(ranked_symbols))}, {"label": "Imports", "value": str(len(imports))}, {"label": "Lines", "value": str(len(lines))}],
+        "symbols": ranked_symbols,
+        "imports": imports,
+        "boundary": "Structural scan of the first 60,000 readable characters only; later declarations may be outside this sample." if truncated else "Structural scan of the readable source text; declarations and imports are not an execution trace.",
+    }
+
+
 def preview_text_for(path: str, size: int | None) -> str | None:
     basename = path_basename(path).lower()
     if path_extension(path) in PREVIEW_BLOCKED_EXTENSIONS or basename in LOCK_FILES or re.search(r"\.min\.(?:js|css)$", basename):
@@ -666,6 +1049,7 @@ def build_repository_map(files: list[str], branch: str = "main", project_name: s
         preview = preview_text_for(item["path"], sizes.get(item["path"]))
         if preview:
             item["preview"] = preview
+            item["readingGuide"] = build_reading_guide(item["path"], preview, truncated=len(preview) >= MAX_PREVIEW_CHARS)
             previews[item["path"]] = preview
     for item in entries:
         if item["path"] in previews:
@@ -905,9 +1289,9 @@ def split_dependency_spec(spec: str) -> tuple[str, str]:
     return name, version or "declared"
 
 
-def toml_assignment_records(text: str) -> list[tuple[str, str, str]]:
-    """Read section/key/value triples from dependency-focused TOML without a TOML dependency."""
-    records: list[tuple[str, str, str]] = []
+def toml_assignment_records(text: str) -> list[tuple[str, str, str, int]]:
+    """Read section/key/value triples and source lines from dependency-focused TOML."""
+    records: list[tuple[str, str, str, int]] = []
     section = ""
     lines = text.splitlines()
     index = 0
@@ -926,12 +1310,13 @@ def toml_assignment_records(text: str) -> list[tuple[str, str, str]]:
         if not assignment:
             index += 1
             continue
+        start_line = index + 1
         key = next(group for group in assignment.groups()[:3] if group is not None)
         value = assignment.group(4)
         while not toml_value_complete(value) and index + 1 < len(lines):
             index += 1
             value += "\n" + lines[index]
-        records.append((section, key, value.strip()))
+        records.append((section, key, value.strip(), start_line))
         index += 1
     return records
 
@@ -971,6 +1356,14 @@ def strings_in_toml_value(value: str) -> list[str]:
     return [html.unescape(item) for item in re.findall(r"[\"']([^\"']+)[\"']", value)]
 
 
+def toml_string_records(value: str, start_line: int = 1) -> list[tuple[str, int]]:
+    return [
+        (html.unescape(match.group(1)), start_line + value[:match.start()].count("\n"))
+        for match in re.finditer(r"[\"']([^\"']+)[\"']", value)
+        if not re.search(r"include-group\s*=\s*$", value[:match.start()][-80:])
+    ]
+
+
 def dependency_section_kind(path: str, section: str, key: str) -> str | None:
     if path == "Cargo.toml":
         if section == "workspace.dependencies":
@@ -996,6 +1389,8 @@ def dependency_section_kind(path: str, section: str, key: str) -> str | None:
         return "optional"
     if section == "build-system" and key == "requires":
         return "build"
+    if section == "dependency-groups":
+        return "build"
     if section == "tool.poetry.dependencies":
         return "runtime"
     if section == "tool.poetry.dev-dependencies":
@@ -1020,14 +1415,10 @@ def dedupe_dependencies(entries: list[dict[str, str]]) -> list[dict[str, str]]:
     return unique
 
 
-def read_toml_manifest(text: str, path: str) -> tuple[list[dict[str, str]], dict[str, Any]]:
+def toml_dependency_entries(text: str, path: str) -> list[dict[str, Any]]:
     records = toml_assignment_records(text)
-    entries: list[dict[str, str]] = []
-    meta: dict[str, Any] = {}
-    for section, key, value in records:
-        if (path == "pyproject.toml" and section in {"project", "tool.poetry"}) or (path == "Cargo.toml" and section == "package"):
-            if key in {"name", "description"} and not meta.get(key):
-                meta[key] = toml_string_value(value)
+    entries: list[dict[str, Any]] = []
+    for section, key, value, line in records:
         kind = dependency_section_kind(path, section, key)
         if not kind:
             continue
@@ -1035,22 +1426,44 @@ def read_toml_manifest(text: str, path: str) -> tuple[list[dict[str, str]], dict
             nested = re.match(r"^(?:dev-|build-)?dependencies\.(.+)$", section)
             if nested:
                 version = "workspace" if key == "workspace" else (toml_string_value(value) or "declared")
-                entries.append({"name": nested.group(1), "version": version, "type": kind, "sourcePath": path})
+                entries.append({"name": nested.group(1), "version": version, "type": kind, "sourcePath": path, "line": line})
                 continue
             if key.endswith(".workspace"):
-                entries.append({"name": key.removesuffix(".workspace"), "version": "workspace", "type": kind, "sourcePath": path})
+                entries.append({"name": key.removesuffix(".workspace"), "version": "workspace", "type": kind, "sourcePath": path, "line": line})
                 continue
             version = toml_string_value(value)
             if not version:
                 version_match = re.search(r"(?:^|[,{]\s*)version\s*=\s*[\"']([^\"']+)", value)
                 version = version_match.group(1) if version_match else ""
-            entries.append({"name": key, "version": version or "declared", "type": kind, "sourcePath": path})
+            entries.append({"name": key, "version": version or "declared", "type": kind, "sourcePath": path, "line": line})
             continue
-        for spec in strings_in_toml_value(value):
+        poetry_section = section in {"tool.poetry.dependencies", "tool.poetry.dev-dependencies"} or (
+            section.startswith("tool.poetry.group.") and section.endswith(".dependencies")
+        )
+        if poetry_section:
+            if key.lower() == "python":
+                continue
+            version = toml_string_value(value)
+            if not version:
+                version_match = re.search(r"(?:^|[,{]\s*)version\s*=\s*[\"']([^\"']+)", value)
+                version = version_match.group(1) if version_match else ""
+            entries.append({"name": key, "version": version or "declared", "type": kind, "sourcePath": path, "line": line})
+            continue
+        for spec, spec_line in toml_string_records(value, line):
             name, version = split_dependency_spec(spec)
             if name:
-                entries.append({"name": name, "version": version, "type": kind, "sourcePath": path})
-    return dedupe_dependencies(entries)[:20], meta
+                entries.append({"name": name, "version": version, "type": kind, "sourcePath": path, "line": spec_line})
+    return dedupe_dependencies(entries)
+
+
+def read_toml_manifest(text: str, path: str) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    meta: dict[str, Any] = {}
+    for section, key, value, _line in toml_assignment_records(text):
+        if (path == "pyproject.toml" and section in {"project", "tool.poetry"}) or (path == "Cargo.toml" and section == "package"):
+            if key in {"name", "description"} and not meta.get(key):
+                meta[key] = toml_string_value(value)
+    entries = [{key: value for key, value in entry.items() if key != "line"} for entry in toml_dependency_entries(text, path)]
+    return entries[:20], meta
 
 
 def natural_day(commit: dict[str, Any]) -> str:
@@ -1701,7 +2114,7 @@ def main() -> None:
     journey = build_journey(files, readme_path, manifest_path, architecture)
     learning = build_learning(orientation, journey, architecture, analysis, dependencies, readme_path, manifest_path, repository_map)
     artifact = {
-        "version": "1.2",
+        "version": "1.3",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "project": {"repo": slug, "name": slug.replace("/", " / "), "htmlUrl": url, "description": description, "manifestPath": manifest_path, "defaultBranch": branch},
         "repo": slug,

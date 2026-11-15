@@ -31,11 +31,15 @@ The Blueprint room now includes a Repository Atlas designed as an archival readi
 - The browser indexes every path returned by GitHub's recursive tree; the local Agent indexes every path in the tracked HEAD tree.
 - A suggested route moves from public promise to dependency boundary, entry point, implementation, public surface, example, test, and maintenance path. Missing stops are omitted instead of fabricated.
 - Every route stop explains its reading role and links to the exact tracked path.
+- Each route stop can carry a `readingGuide` generated with the deterministic `text-structure/v1` lens. For source files it surfaces top-level classes, structs, interfaces, functions, and imports with line numbers; for manifests it surfaces scripts, modules, and declared packages; for documents it surfaces headings and the first substantive passage.
+- Reading-lens entries are clickable. Selecting a declaration or import scrolls the code pane to that numbered line and briefly highlights it, so “start here” remains traceable instead of becoming decorative advice.
+- Source declarations are ranked deterministically before presentation: public types, core objects, project-named symbols, and entry-like functions come before private or incidental helpers. This is a reading heuristic, not an execution trace or a claim about which code is most important.
 - Every indexed path is searchable and filterable. Selecting a folder narrows the path index; selecting a file loads a bounded text preview.
 - The local Agent embeds small text previews in the artifact. The public browser fetches readable files on demand from GitHub raw, with binary, lock-file, minified-file, and oversized-file fallbacks.
 - Browser scans and local Agent artifacts use the same `repositoryMap` contract: totals, extensions, directories, indexed entries, route stops, and optional previews.
 - If GitHub returns a partial recursive tree, the atlas says so instead of presenting the partial list as the whole repository.
-- Reading roles are inferred from names and paths. The route is a reading suggestion, not evidence that a file executes, that a dependency is used at runtime, or that the project has been run.
+- Reading roles and guides are inferred from names, paths, and the readable text preview. The route is a reading suggestion, not evidence that a file executes, that a dependency is used at runtime, or that the project has been run.
+- Reading guides scan at most the first 60,000 readable characters. The guide states this boundary, and older artifacts without `readingGuide` still work because the browser derives the same lens from any loaded preview.
 
 The site does not upload repository contents or require a model API. The browser reads public GitHub endpoints and public manifest files directly. The local Agent stays local and emits the same data shape, including `orientation`, `journey`, `architecture.flow`, `repositoryMap`, and `analysis`, so deeper history can use the same renderer without turning the public site into a backend. The Agent's teaching path is deliberately conservative: it separates observed evidence from inferred explanations and links important claims back to a tracked file, manifest, commit, or tag.
 
@@ -44,10 +48,10 @@ The site does not upload repository contents or require a model API. The browser
 This is a dependency-free static site. Serve the folder with any local HTTP server so browser fetch requests work:
 
 ```bash
-python3 -m http.server 4173
+python3 -m http.server 8000
 ```
 
-Then open `http://localhost:4173`.
+Then open `http://localhost:8000`.
 
 ## Run the local Agent
 
@@ -60,10 +64,10 @@ python3 skills/repo-museum/scripts/build_museum.py
 This creates `.repo-museum/museum.json`. It uses only local Git and the Python standard library; it indexes the tracked HEAD tree, then reads the README, manifests, tags, and commit history. Text previews are capped at 60,000 characters and 2 MB of source. It does not push, publish, or upload repository contents. To inspect the generated collection in the local museum, serve the repository root and open:
 
 ```text
-http://localhost:4173/?museum=.repo-museum%2Fmuseum.json
+http://localhost:8000/?museum=.repo-museum%2Fmuseum.json
 ```
 
-The reusable skill instructions live in `skills/repo-museum/SKILL.md`. The renderer contract, including the optional `repositoryMap`, is documented in `schema/museum-data.schema.json`. Artifacts created before the atlas remain valid; when `repositoryMap` is absent, the optional Atlas exhibit is hidden.
+The reusable skill instructions live in `skills/repo-museum/SKILL.md`. The renderer contract, including the optional `repositoryMap`, is documented in `schema/museum-data.schema.json`. Artifacts created before the atlas remain valid; when `repositoryMap` is absent, the optional Atlas exhibit is hidden. Artifacts with a `repositoryMap` but without `readingGuide` remain valid too; the Atlas builds the structural lens from the preview at runtime.
 
 ## Share a collection
 
@@ -93,6 +97,6 @@ schema/          shared museum data contract
 
 ## Product boundary
 
-The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `repositoryMap`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into one discovery with an ordered evidence trail; `analysis.phases` explains the grouped natural-day arc and why its turning point was selected; `analysis.turningPointReason`, `analysis.distinctDates`, `analysis.excludedSameDayEvents`, and `analysis.coverage` keep the reading auditable. `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
+The public browser path intentionally uses transparent rule-based interpretation and public GitHub evidence. The local Agent can generate richer museum data from local Git history, tags, manifests, README, and repository structure. It emits shared `project`, `orientation`, `journey`, `architecture`, `repositoryMap`, `learning`, `events`, `dependencies`, `analysis`, and `sources` fields so the renderer stays shared. `repositoryMap.readOrder[].readingGuide` turns a suggested route into a file-level reading lens with declaration and import line evidence. `journey` explains a likely use path for a visitor who does not know the code; `architecture.flow` maps that path to visible repository areas; `learning.rooms` turns each exhibit into one discovery with an ordered evidence trail; `analysis.phases` explains the grouped natural-day arc and why its turning point was selected; `analysis.turningPointReason`, `analysis.distinctDates`, `analysis.excludedSameDayEvents`, and `analysis.coverage` keep the reading auditable. `analysis.arc[].lesson` and `analysis.historySummary` explain what the history teaches. Claims are evidence-backed and uncertain interpretations must be marked as such.
 
 Built by `strawberry-little-bear`.

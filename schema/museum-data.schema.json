@@ -15,6 +15,54 @@
         "claim": { "type": "string" }
       }
     },
+    "readingGuide": {
+      "type": "object",
+      "required": ["model", "mode", "language", "headline", "notice", "facts", "symbols", "imports", "boundary"],
+      "properties": {
+        "model": { "const": "text-structure/v1" },
+        "mode": { "enum": ["source", "document", "manifest"] },
+        "language": { "type": "string" },
+        "headline": { "type": "string", "maxLength": 240 },
+        "notice": { "type": "string", "maxLength": 360 },
+        "facts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "value"],
+            "properties": {
+              "label": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind", "line", "signature"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1 },
+              "signature": { "type": "string" }
+            }
+          }
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "line", "names"],
+            "properties": {
+              "source": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1 },
+              "names": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "boundary": { "type": "string" }
+      }
+    },
     "repositoryMap": {
       "type": "object",
       "required": ["root", "branch", "truncated", "totalFiles", "totalDirectories", "indexedEntries", "extensions", "directories", "readOrder", "entries", "coverageNote"],
@@ -58,7 +106,8 @@
               "why": { "type": "string" },
               "kind": { "type": "string" },
               "evidence": { "type": "string" },
-              "preview": { "type": "string", "maxLength": 60000 }
+              "preview": { "type": "string", "maxLength": 60000 },
+              "readingGuide": { "$ref": "#/$defs/readingGuide" }
             }
           }
         },

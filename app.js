@@ -299,13 +299,14 @@ function tomlAssignmentRecords(contents) {
     if (header) { section = header[1].trim(); index += 1; continue; }
     const assignment = lines[index].match(/^\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_.-]+))\s*=\s*(.*)$/);
     if (!assignment) { index += 1; continue; }
+    const startLine = index + 1;
     const key = assignment[1] || assignment[2] || assignment[3];
     let value = assignment[4];
     while (!tomlValueComplete(value) && index + 1 < lines.length) {
       index += 1;
       value += `\n${lines[index]}`;
     }
-    records.push({ section, key, value: value.trim() });
+    records.push({ section, key, value: value.trim(), line: startLine });
     index += 1;
   }
   return records;
@@ -317,6 +318,15 @@ function tomlStringValue(value) {
 
 function stringsInTomlValue(value) {
   return [...String(value || "").matchAll(/["']([^"']+)["']/g)].map((match) => match[1]);
+}
+
+function tomlStringRecords(value, startLine = 1) {
+  return [...String(value || "").matchAll(/["']([^"']+)["']/g)]
+    .filter((match) => !/include-group\s*=\s*$/.test(String(value).slice(0, match.index).slice(-80)))
+    .map((match) => ({
+      value: match[1],
+      line: startLine + String(value || "").slice(0, match.index).split("\n").length - 1,
+    }));
 }
 
 function dependencySectionKind(path, section, key) {
@@ -334,38 +344,52 @@ function dependencySectionKind(path, section, key) {
   if (section === "project" && key === "dependencies") return "runtime";
   if (section === "project.optional-dependencies") return "optional";
   if (section === "build-system" && key === "requires") return "build";
+  if (section === "dependency-groups") return "build";
   if (section === "tool.poetry.dependencies") return "runtime";
   if (section === "tool.poetry.dev-dependencies") return "build";
   if (section.startsWith("tool.poetry.group.") && section.endsWith(".dependencies")) return "build";
   return null;
 }
 
-function parseTomlDependencies(contents, path) {
+function tomlDependencyEntries(contents, path) {
   const entries = [];
-  for (const { section, key, value } of tomlAssignmentRecords(contents)) {
+  for (const { section, key, value, line } of tomlAssignmentRecords(contents)) {
     const kind = dependencySectionKind(path, section, key);
     if (!kind) continue;
     if (path === "Cargo.toml") {
       const nested = section.match(/^(?:dev-|build-)?dependencies\.(.+)$/);
       if (nested) {
         const version = key === "workspace" ? "workspace" : (tomlStringValue(value) || "declared");
-        entries.push({ name: nested[1], version, type: kind, sourcePath: path });
+        entries.push({ name: nested[1], version, type: kind, sourcePath: path, line });
         continue;
       }
       if (key.endsWith(".workspace")) {
-        entries.push({ name: key.slice(0, -".workspace".length), version: "workspace", type: kind, sourcePath: path });
+        entries.push({ name: key.slice(0, -".workspace".length), version: "workspace", type: kind, sourcePath: path, line });
         continue;
       }
       const version = tomlStringValue(value) || value.match(/(?:^|[,{]\s*)version\s*=\s*["']([^"']+)/)?.[1] || "declared";
-      entries.push({ name: key, version, type: kind, sourcePath: path });
+      entries.push({ name: key, version, type: kind, sourcePath: path, line });
       continue;
     }
-    for (const spec of stringsInTomlValue(value)) {
+    const poetrySection = section === "tool.poetry.dependencies"
+      || section === "tool.poetry.dev-dependencies"
+      || (section.startsWith("tool.poetry.group.") && section.endsWith(".dependencies"));
+    if (poetrySection) {
+      if (key.toLowerCase() === "python") continue;
+      const version = tomlStringValue(value) || value.match(/(?:^|[,{]\s*)version\s*=\s*["']([^"']+)/)?.[1] || "declared";
+      entries.push({ name: key, version, type: kind, sourcePath: path, line });
+      continue;
+    }
+    for (const { value: spec, line: specLine } of tomlStringRecords(value, line)) {
       const dependency = splitDependencySpec(spec);
-      if (dependency) entries.push({ ...dependency, type: kind, sourcePath: path });
+      if (dependency) entries.push({ ...dependency, type: kind, sourcePath: path, line: specLine });
     }
   }
-  return entries;
+  return dedupeDependencies(entries);
+}
+
+function parseTomlDependencies(contents, path) {
+  return tomlDependencyEntries(contents, path).map(({ line, ...entry }) => entry);
 }
 
 function parseDependencies(contents, path) {
@@ -424,6 +448,19 @@ const CONFIG_EXTENSIONS = new Set([".json", ".jsonc", ".yaml", ".yml", ".toml", 
 const PREVIEW_BLOCKED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp", ".tiff", ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".jar", ".class", ".pyc", ".wasm", ".mp3", ".mp4", ".mov", ".avi", ".webm", ".ogg", ".wav", ".flac", ".so", ".dylib", ".dll", ".exe"]);
 const LOCK_FILES = new Set(["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "cargo.lock", "poetry.lock", "uv.lock", "composer.lock", "gemfile.lock"]);
 const FILTER_LABELS = { all: "All", code: "Code", documentation: "Docs", manifest: "Manifest", test: "Tests", example: "Examples", config: "Config", automation: "CI", asset: "Assets", generated: "Generated", directory: "Folders" };
+const SOURCE_LANGUAGES = new Map([
+  [".py", "Python"], [".js", "JavaScript"], [".mjs", "JavaScript"], [".cjs", "JavaScript"],
+  [".jsx", "JavaScript"], [".ts", "TypeScript"], [".tsx", "TypeScript"], [".vue", "Vue"],
+  [".svelte", "Svelte"], [".go", "Go"], [".rs", "Rust"], [".rb", "Ruby"], [".java", "Java"],
+  [".kt", "Kotlin"], [".kts", "Kotlin"], [".swift", "Swift"], [".c", "C"], [".h", "C"],
+  [".cc", "C++"], [".cpp", "C++"], [".hpp", "C++"], [".cs", "C#"], [".php", "PHP"],
+  [".scala", "Scala"], [".ex", "Elixir"], [".exs", "Elixir"], [".erl", "Erlang"],
+  [".hs", "Haskell"], [".lua", "Lua"], [".r", "R"], [".jl", "Julia"], [".sh", "Shell"],
+  [".bash", "Shell"], [".zsh", "Shell"], [".ps1", "PowerShell"], [".sql", "SQL"],
+  [".css", "CSS"], [".scss", "Sass"], [".sass", "Sass"], [".less", "Less"],
+  [".md", "Markdown"], [".mdx", "Markdown"], [".rst", "reStructuredText"], [".adoc", "AsciiDoc"],
+  [".json", "JSON"], [".yaml", "YAML"], [".yml", "YAML"], [".toml", "TOML"],
+]);
 
 function pathBasename(path) {
   return String(path || "").split("/").at(-1) || "";
@@ -484,6 +521,304 @@ function pathReadPreference(path, projectName = "", context = "") {
 
 function chooseReadPath(files, predicate, projectName = "", context = "") {
   return files.filter(predicate).sort((left, right) => pathReadPreference(left, projectName, context) - pathReadPreference(right, projectName, context) || left.localeCompare(right))[0] || "";
+}
+
+function guideLineText(value, limit = 180) {
+  return String(value || "").replace(/\t/g, "  ").replace(/\s+$/g, "").slice(0, limit);
+}
+
+function guideLineNumber(lines, fragment) {
+  const needle = String(fragment || "").slice(0, 80);
+  if (!needle) return 1;
+  const index = lines.findIndex((line) => line.includes(needle));
+  return index >= 0 ? index + 1 : 1;
+}
+
+function guideLanguage(path) {
+  const basename = pathBasename(path).toLowerCase();
+  if (basename === "dockerfile") return "Dockerfile";
+  if (basename === "makefile") return "Makefile";
+  return SOURCE_LANGUAGES.get(pathExtension(path)) || "Plain text";
+}
+
+function readingGuideSymbolRank(symbol, path) {
+  const name = String(symbol?.name || "");
+  const kind = String(symbol?.kind || "").toLowerCase();
+  const stem = pathBasename(path).replace(/\.[^.]+$/, "").toLowerCase();
+  let score = ["class", "struct", "interface", "trait", "enum", "type", "component", "module"].includes(kind)
+    ? 0
+    : ["object", "implementation"].includes(kind)
+      ? 10
+      : kind === "function"
+        ? 20
+        : 50;
+  if (/^_/.test(name) && !/^__.+__$/.test(name)) score += 55;
+  if (/^(get|set|is|has|should|can|to|from|with|as|of|on|by|format|shorten)_/i.test(name)) score += 14;
+  if (name.length <= 3) score += 10;
+  if (/^(main|app|run|start|create|new|init|default|serve|server|render|load|build|parse|handle|use|engine|client|router|context)/i.test(name)) score -= 12;
+  if (name.toLowerCase() === stem) score -= 25;
+  return score * 10_000 + (Number(symbol?.line) || 0);
+}
+
+function sortReadingGuideSymbols(symbols, path) {
+  return [...symbols].sort((left, right) => readingGuideSymbolRank(left, path) - readingGuideSymbolRank(right, path));
+}
+
+function buildReadingGuide(path, text, options = {}) {
+  const source = String(text || "").replace(/\r\n?/g, "\n");
+  if (!source.trim()) return null;
+  const lines = source.split("\n");
+  const basename = pathBasename(path).toLowerCase();
+  const category = repositoryPathCategory(path);
+  const language = guideLanguage(path);
+  const manifest = REPOSITORY_MANIFESTS.has(basename) || /^(cargo\.toml|requirements\.txt|go\.mod|pyproject\.toml|package\.json)$/.test(basename);
+  const document = DOCUMENT_EXTENSIONS.has(pathExtension(path)) || category === "documentation";
+
+  if (manifest) {
+    const symbols = [];
+    const imports = [];
+    const seen = new Set();
+    const addSymbol = (name, kind, line, signature) => {
+      const key = `${kind}:${name}`;
+      if (!name || seen.has(key) || symbols.length >= 12) return;
+      seen.add(key);
+      symbols.push({ name: String(name).slice(0, 90), kind, line, signature: guideLineText(signature) });
+    };
+    const addImport = (name, line, detail = "") => {
+      if (!name || imports.some((item) => item.source === name) || imports.length >= 12) return;
+      imports.push({ source: String(name).slice(0, 120), names: detail ? [String(detail).slice(0, 80)] : [], line });
+    };
+    let headline = "";
+    let notice = "";
+    if (basename === "package.json") {
+      try {
+        const parsed = JSON.parse(source);
+        const scripts = Object.entries(parsed.scripts || {});
+        const dependencies = { ...(parsed.dependencies || {}), ...(parsed.devDependencies || {}) };
+        scripts.slice(0, 6).forEach(([name, command]) => addSymbol(name, "script", guideLineNumber(lines, `"${name}"`), `"${name}": "${command}"`));
+        Object.entries(dependencies).slice(0, 8).forEach(([name, version]) => addImport(name, guideLineNumber(lines, `"${name}"`), String(version)));
+        const commandNames = scripts.slice(0, 3).map(([name]) => name);
+        headline = `This manifest declares ${scripts.length} command${scripts.length === 1 ? "" : "s"} and ${Object.keys(dependencies).length} dependency entr${Object.keys(dependencies).length === 1 ? "y" : "ies"}.`;
+        notice = commandNames.length
+          ? `Start with the ${naturalList(commandNames.map((name) => `“${name}”`))} command${commandNames.length === 1 ? "" : "s"}; they connect the repository to a reproducible workflow.`
+          : "No command scripts are declared here, so read the dependency entries as the project's visible capability boundary.";
+      } catch {
+        headline = "This package manifest is not valid JSON in the readable sample.";
+        notice = "The original manifest is still linked below; the museum does not infer commands from malformed JSON.";
+      }
+    } else if (basename === "go.mod") {
+      lines.forEach((line, index) => {
+        const module = line.match(/^\s*module\s+(\S+)/);
+        if (module) addSymbol(module[1], "module", index + 1, line);
+        const requirement = line.match(/^\s*(?:require\s+)?([A-Za-z0-9._~-]+\.[A-Za-z]{2,}\/[^\s]+)\s+v?[^\s]+/);
+        if (requirement && !requirement[1].startsWith("//")) addImport(requirement[1], index + 1);
+      });
+      const module = symbols.find((item) => item.kind === "module");
+      headline = module ? `This module manifest names ${module.name} as the import root and exposes ${imports.length} visible module requirement${imports.length === 1 ? "" : "s"}.` : `This Go module manifest exposes ${imports.length} readable module requirement${imports.length === 1 ? "" : "s"}.`;
+      notice = module ? `Begin with the module path ${module.name}, then inspect the requirements to see which external packages the source tree can borrow.` : "Begin with the declared requirements; they form the project's visible external capability boundary.";
+    } else if (basename === "cargo.toml") {
+      lines.forEach((line, index) => {
+        const packageName = line.match(/^\s*name\s*=\s*["']([^"']+)["']/);
+        if (packageName && !symbols.length) addSymbol(packageName[1], "package", index + 1, line);
+        const dependency = line.match(/^\s*([A-Za-z0-9_-]+)\s*=\s*(?:\{[^}]*version\s*=\s*)?["']([^"']+)["']/);
+        if (dependency && !["name", "version", "edition", "rust-version", "description"].includes(dependency[1])) addImport(dependency[1], index + 1, dependency[2]);
+      });
+      headline = `This Cargo manifest declares ${imports.length} visible dependency entr${imports.length === 1 ? "y" : "ies"} around ${symbols[0]?.name || "the crate"}.`;
+      notice = "Read the package identity first, then the dependency sections to see which capabilities the Rust crate delegates.";
+    } else if (basename === "pyproject.toml") {
+      const records = tomlAssignmentRecords(source);
+      const projectName = records.find((record) => record.section === "project" && record.key === "name");
+      if (projectName) addSymbol(tomlStringValue(projectName.value), "package", projectName.line, lines[projectName.line - 1]);
+      records.filter((record) => ["project.scripts", "tool.poetry.scripts"].includes(record.section)).slice(0, 8).forEach((record) => {
+        addSymbol(record.key, "script", record.line, lines[record.line - 1]);
+      });
+      tomlDependencyEntries(source, "pyproject.toml").slice(0, 12).forEach((dependency) => {
+        addImport(dependency.name, dependency.line, dependency.version);
+      });
+      const commands = symbols.filter((symbol) => symbol.kind === "script");
+      headline = `This Python project manifest establishes ${symbols.find((symbol) => symbol.kind === "package")?.name || "the package"}, ${imports.length} visible dependency entr${imports.length === 1 ? "y" : "ies"}, and ${commands.length} command${commands.length === 1 ? "" : "s"}.`;
+      notice = commands.length
+        ? `Start with the ${naturalList(commands.slice(0, 3).map((command) => `“${command.name}”`))} command${commands.length === 1 ? "" : "s"}, then read the dependency groups as the project's visible capability boundary.`
+        : "Read the package identity, then the dependency groups: together they define what the project claims and what it borrows.";
+    } else {
+      lines.forEach((line, index) => {
+        const requirement = line.match(/^\s*([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(?:[<>=!~].*)?$/);
+        if (requirement && !requirement[1].startsWith("#")) addImport(requirement[1], index + 1);
+      });
+      headline = `This manifest lists ${imports.length} visible dependency entr${imports.length === 1 ? "y" : "ies"}.`;
+      notice = "Use the declarations as a capability boundary, not as proof that every package is active in the same code path.";
+    }
+    return {
+      model: "text-structure/v1",
+      mode: "manifest",
+      language,
+      headline: clipReadingGuide(headline, 220),
+      notice: clipReadingGuide(notice, 300),
+      facts: [{ label: "Declarations", value: String(symbols.length) }, { label: "Dependencies", value: String(imports.length) }, { label: "Lines", value: String(lines.length) }],
+      symbols,
+      imports,
+      boundary: options.truncated ? "Structural scan of the readable preview only; the manifest continues beyond this sample." : "Structural scan of the readable manifest; no install or command execution was observed.",
+    };
+  }
+
+  if (document) {
+    const headings = [];
+    let firstParagraph = "";
+    let inFence = false;
+    for (let index = 0; index < lines.length && headings.length < 24; index += 1) {
+      const raw = lines[index];
+      const stripped = raw.trim();
+      if (/^(?:```|~~~)/.test(stripped)) { inFence = !inFence; continue; }
+      if (inFence) continue;
+      const heading = raw.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+      if (heading) {
+        headings.push({ name: stripMarkdownInline(heading[2]).slice(0, 100), kind: "section", line: index + 1, signature: guideLineText(stripped) });
+        continue;
+      }
+      if (!firstParagraph && stripped && !/^\s*(?:[-+*]|\d+[.)])\s+/.test(raw) && !/^\[[^\]]+\]:/.test(stripped) && !/^[|<>]/.test(stripped)) {
+        const cleaned = stripMarkdownInline(stripped);
+        if (cleaned.length >= 28) firstParagraph = cleaned;
+      }
+    }
+    const primary = headings[0]?.name || pathBasename(path);
+    const headline = headings.length
+      ? `This document opens with “${primary}” and is organised into ${headings.length} visible heading${headings.length === 1 ? "" : "s"}.`
+      : `This document offers a ${lines.length}-line readable record without Markdown headings.`;
+    const notice = firstParagraph
+      ? `Start with the section “${primary}”. The first substantive passage says: “${clipReadingGuide(firstParagraph, 180)}”`
+      : `Start at “${primary}”; the scan did not find a plain introductory paragraph to quote without risking misrepresentation.`;
+    return {
+      model: "text-structure/v1",
+      mode: "document",
+      language,
+      headline: clipReadingGuide(headline, 220),
+      notice: clipReadingGuide(notice, 340),
+      facts: [{ label: "Sections", value: String(headings.length) }, { label: "Lines", value: String(lines.length) }],
+      symbols: headings,
+      imports: [],
+      boundary: options.truncated ? "Structural scan of the readable preview only; later sections may be outside this sample." : "Structural scan of the readable document; quoted language remains the project's own wording.",
+    };
+  }
+
+  const symbols = [];
+  const imports = [];
+  const seenSymbols = new Set();
+  const seenImports = new Set();
+  const addSymbol = (name, kind, line, signature) => {
+    const key = `${kind}:${name}`;
+    if (!name || seenSymbols.has(key) || symbols.length >= 36) return;
+    seenSymbols.add(key);
+    symbols.push({ name: String(name).slice(0, 100), kind, line, signature: guideLineText(signature, 200) });
+  };
+  const addImport = (source, line, names = []) => {
+    if (!source || seenImports.has(source) || imports.length >= 24) return;
+    seenImports.add(source);
+    imports.push({ source: String(source).slice(0, 160), line, names: names.map((name) => String(name).slice(0, 70)).slice(0, 5) });
+  };
+
+  let inGoImportBlock = false;
+  let inCommentBlock = false;
+  lines.forEach((raw, index) => {
+    const line = raw.trim();
+    const lineNumber = index + 1;
+    if (!line) return;
+    if (inCommentBlock) { if (line.includes("*/")) inCommentBlock = false; return; }
+    if (/^\/\*/.test(line)) { if (!line.includes("*/")) inCommentBlock = true; return; }
+    const topLevel = raw === raw.trimStart();
+    const extension = pathExtension(path).toLowerCase();
+
+    if (extension === ".py") {
+      const declaration = raw.match(/^(?:async\s+)?(class|def)\s+([A-Za-z_]\w*)\s*(\([^)]*\))?\s*:?/);
+      if (declaration) addSymbol(declaration[2], declaration[1] === "class" ? "class" : "function", lineNumber, line);
+      const fromImport = line.match(/^from\s+([.\w]+)\s+import\s+(.+)$/);
+      if (fromImport) addImport(fromImport[1], lineNumber, fromImport[2].replace(/[()]/g, "").split(",").map((name) => name.trim().split(/\s+as\s+/)[0]).filter(Boolean));
+      const plainImport = line.match(/^import\s+(.+)$/);
+      if (plainImport) plainImport[1].split(",").forEach((name) => addImport(name.trim().split(/\s+as\s+/)[0], lineNumber));
+    } else if ([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte"].includes(extension)) {
+      const fromImport = line.match(/^import\s+(.+?)\s+from\s+["']([^"']+)["']/);
+      if (fromImport) addImport(fromImport[2], lineNumber, [fromImport[1].replace(/[{}*]/g, "").trim()]);
+      const sideImport = line.match(/^import\s+["']([^"']+)["']/);
+      if (sideImport) addImport(sideImport[1], lineNumber);
+      const required = line.match(/(?:require|import)\(\s*["']([^"']+)["']\s*\)/);
+      if (required) addImport(required[1], lineNumber);
+      if (topLevel) {
+        const fn = raw.match(/^(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/);
+        const cls = raw.match(/^(?:export\s+(?:default\s+)?)?class\s+([A-Za-z_$][\w$]*)/);
+        const typed = raw.match(/^(?:export\s+)?(?:interface|type|enum)\s+([A-Za-z_$][\w$]*)/);
+        const arrow = raw.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/);
+        const plainFn = raw.match(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\b/);
+        if (fn) addSymbol(fn[1], "function", lineNumber, line);
+        if (cls) addSymbol(cls[1], "class", lineNumber, line);
+        if (typed) addSymbol(typed[1], typed[1] && typed[0].includes("interface") ? "interface" : "type", lineNumber, line);
+        if (arrow) addSymbol(arrow[1], /^[A-Z]/.test(arrow[1]) ? "component" : "function", lineNumber, line);
+        if (plainFn) addSymbol(plainFn[1], "function", lineNumber, line);
+      }
+    } else if (extension === ".go") {
+      if (/^import\s*\(/.test(line)) { inGoImportBlock = true; return; }
+      if (inGoImportBlock && line === ")") { inGoImportBlock = false; return; }
+      if (inGoImportBlock) {
+        const imported = line.match(/(?:[._A-Za-z]\w*\s+)?["']([^"']+)["']/);
+        if (imported) addImport(imported[1], lineNumber);
+      }
+      const singleImport = line.match(/^import\s+(?:[._A-Za-z]\w*\s+)?["']([^"']+)["']/);
+      if (singleImport) addImport(singleImport[1], lineNumber);
+      const type = raw.match(/^type\s+([A-Za-z_]\w*)\s+(struct|interface)\b/);
+      const fn = raw.match(/^func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/);
+      if (type) addSymbol(type[1], type[2], lineNumber, line);
+      if (fn) addSymbol(fn[1], "function", lineNumber, line);
+    } else if (extension === ".rs") {
+      const imported = line.match(/^use\s+([^;]+);/);
+      if (imported) addImport(imported[1].split("::").slice(0, 2).join("::"), lineNumber, [imported[1]]);
+      const declaration = raw.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(fn|struct|enum|trait|mod)\s+([A-Za-z_]\w*)/);
+      const implementation = raw.match(/^impl(?:<[^>]+>)?\s+(?:[^ ]+\s+for\s+)?([A-Za-z_]\w*)/);
+      if (declaration) addSymbol(declaration[2], declaration[1], lineNumber, line);
+      if (implementation) addSymbol(implementation[1], "implementation", lineNumber, line);
+    } else if (extension === ".rb") {
+      const declaration = raw.match(/^\s*(class|module|def)\s+([A-Za-z_][\w:!?=]*)/);
+      if (declaration) addSymbol(declaration[2], declaration[1], lineNumber, line);
+      const required = line.match(/^require(?:_relative)?\s+["']([^"']+)["']/);
+      if (required) addImport(required[1], lineNumber);
+    } else if ([".java", ".kt", ".kts", ".cs", ".scala"].includes(extension)) {
+      const imported = line.match(/^import\s+([\w.*]+);?/);
+      if (imported) addImport(imported[1], lineNumber);
+      const declaration = raw.match(/^(?:\s*(?:public|private|protected|internal|open|abstract|final|static|sealed|data)\s+)*(class|interface|enum|record|fun|object)\s+([A-Za-z_]\w*)/);
+      if (declaration) addSymbol(declaration[2], declaration[1], lineNumber, line);
+    } else if (extension === ".php") {
+      const required = line.match(/(?:require|include)(?:_once)?\s*\(?\s*["']([^"']+)["']/);
+      if (required) addImport(required[1], lineNumber);
+      const declaration = raw.match(/^\s*(?:abstract\s+|final\s+)?(class|interface|trait|function)\s+([A-Za-z_]\w*)/);
+      if (declaration) addSymbol(declaration[2], declaration[1], lineNumber, line);
+    } else if (extension === ".sh" || extension === ".bash" || extension === ".zsh") {
+      const fn = raw.match(/^(?:function\s+)?([A-Za-z_][\w-]*)\s*(?:\(\))?\s*\{/);
+      if (fn) addSymbol(fn[1], "function", lineNumber, line);
+    }
+  });
+
+  if (!symbols.length) {
+    const fallback = lines.find((line) => line.trim() && !/^[#/*]/.test(line.trim()));
+    if (fallback) addSymbol(pathBasename(path), "file", guideLineNumber(lines, fallback.trim()), fallback);
+  }
+  const rankedSymbols = sortReadingGuideSymbols(symbols, path);
+  const symbolNames = rankedSymbols.slice(0, 3).map((item) => item.name);
+  const importSources = imports.slice(0, 3).map((item) => item.source);
+  const headline = rankedSymbols.length
+    ? `${language} source. The structural scan finds ${rankedSymbols.length} top-level declaration${rankedSymbols.length === 1 ? "" : "s"}${symbolNames.length ? `, led by ${naturalList(symbolNames)}` : ""}.`
+    : `${language} source. The structural scan finds no named top-level declaration pattern.`;
+  const first = rankedSymbols[0];
+  const notice = first
+    ? `Start with ${first.kind} ${first.name} at line ${first.line}.${importSources.length ? ` It also borrows from ${naturalList(importSources)}.` : ""} Read the declaration sites as navigation clues, not as proof of the runtime path.`
+    : `Read the file as a supporting record;${importSources.length ? ` its visible imports point to ${naturalList(importSources)}.` : " no top-level declaration or import pattern is available."}`;
+  return {
+    model: "text-structure/v1",
+    mode: "source",
+    language,
+    headline: clipReadingGuide(headline, 230),
+    notice: clipReadingGuide(notice, 320),
+    facts: [{ label: "Declarations", value: String(rankedSymbols.length) }, { label: "Imports", value: String(imports.length) }, { label: "Lines", value: String(lines.length) }],
+    symbols: rankedSymbols,
+    imports,
+    boundary: options.truncated ? "Structural scan of the first 60,000 readable characters only; later declarations may be outside this sample." : "Structural scan of the readable source text; declarations and imports are not an execution trace.",
+  };
 }
 
 function buildReadOrder(files, projectName = "") {
@@ -577,6 +912,9 @@ function buildRepositoryMap(sourceEntries = [], options = {}) {
   const readOrder = buildReadOrder(files, options.projectName || "");
   const previewByPath = new Map(readOrder.map((item) => [item.path, item.preview]).filter(([, preview]) => preview));
   for (const item of entries) if (previewByPath.has(item.path)) item.preview = previewByPath.get(item.path);
+  for (const item of readOrder) {
+    if (item.preview) item.readingGuide = buildReadingGuide(item.path, item.preview, { truncated: item.preview.length >= 60_000 });
+  }
   return {
     root: "",
     branch: options.branch || "main",
@@ -833,6 +1171,14 @@ function clipSentence(value, limit = 210) {
   if (!text) return "";
   const sentence = text.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() || text;
   return sentence.length > limit ? `${sentence.slice(0, limit - 1).trim()}…` : sentence;
+}
+
+function clipReadingGuide(value, limit = 300) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length <= limit) return text;
+  const candidate = text.slice(0, limit - 1);
+  const shortened = candidate.includes(" ") ? candidate.replace(/\s+\S*$/, "").trimEnd() : candidate.trimEnd();
+  return `${(shortened || candidate).replace(/[ ,;:]+$/, "")}…`;
 }
 
 function phaseList(data) {
@@ -1550,8 +1896,8 @@ function renderRepositoryRoute(data) {
   const map = data.repositoryMap;
   const route = map?.readOrder || [];
   el("repo-map-route-note").textContent = map?.truncated
-    ? "A suggested route across the partial tree returned by GitHub."
-    : "A short evidence trail from purpose to implementation. Select a stop to preview the file.";
+    ? "A suggested route across the partial tree. Select a stop to turn its text into a reading field note."
+    : "A suggested route from purpose to implementation. Each stop becomes a field note with declarations, imports, and line evidence.";
   el("repo-read-order").replaceChildren(...route.map((item, index) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -1562,7 +1908,15 @@ function renderRepositoryRoute(data) {
     const role = document.createElement("small"); role.textContent = item.role || categoryLabel(item.kind);
     const path = document.createElement("strong"); path.textContent = item.path;
     const why = document.createElement("em"); why.textContent = item.why || "A tracked clue in the first-reading route.";
-    body.append(role, path, why); button.append(number, body);
+    body.append(role, path, why);
+    if (item.readingGuide) {
+      const signal = document.createElement("span"); signal.className = "repo-route-signal";
+      const declarations = item.readingGuide.facts?.find((fact) => /declaration/i.test(fact.label))?.value;
+      const imports = item.readingGuide.facts?.find((fact) => /import|dependenc/i.test(fact.label))?.value;
+      signal.textContent = `${declarations || 0} signals · ${imports || 0} boundaries`;
+      body.append(signal);
+    }
+    button.append(number, body);
     button.addEventListener("click", () => selectRepositoryPath(data, item.path));
     return button;
   }));
@@ -1624,7 +1978,66 @@ function renderRepositoryList(data) {
   }
 }
 
-function repositoryPreviewShell(data, entry) {
+function repositoryLineJump(line) {
+  const target = document.querySelector(`.repo-code-line[data-line="${Number(line) || 1}"]`);
+  const pre = target?.closest(".repo-preview-code");
+  if (!target || !pre) return;
+  document.querySelectorAll(".repo-code-line.is-highlighted").forEach((item) => item.classList.remove("is-highlighted"));
+  target.classList.add("is-highlighted");
+  const targetTop = target.getBoundingClientRect().top - pre.getBoundingClientRect().top + pre.scrollTop;
+  pre.scrollTop = Math.max(0, targetTop - (pre.clientHeight / 2) + (target.offsetHeight / 2));
+  pre.focus({ preventScroll: true });
+  window.setTimeout(() => target.classList.remove("is-highlighted"), 1600);
+}
+
+function repositoryReadingGuide(entry, guide) {
+  if (!guide) return null;
+  const section = document.createElement("section"); section.className = "repo-reading-guide"; section.setAttribute("aria-label", `Reading guide for ${entry.path}`);
+  const top = document.createElement("div"); top.className = "repo-reading-guide-top";
+  const heading = document.createElement("div");
+  const kicker = document.createElement("p"); kicker.className = "repo-reading-guide-kicker"; kicker.textContent = `Reading lens · ${guide.language || "text"}${guide.mode ? ` · ${guide.mode}` : ""}`;
+  const headline = document.createElement("strong"); headline.textContent = guide.headline || "A structural reading of this file.";
+  heading.append(kicker, headline);
+  const stamp = document.createElement("span"); stamp.className = "repo-reading-guide-stamp"; stamp.textContent = "Text scan";
+  top.append(heading, stamp);
+  const notice = document.createElement("p"); notice.className = "repo-reading-guide-notice"; notice.textContent = guide.notice || "Use the evidence below to choose where to begin.";
+  const stats = document.createElement("div"); stats.className = "repo-reading-guide-stats";
+  (guide.facts || []).forEach((fact) => {
+    const item = document.createElement("span"); item.append(Object.assign(document.createElement("b"), { textContent: fact.value }), document.createTextNode(` ${fact.label}`)); stats.append(item);
+  });
+  const evidence = document.createElement("div"); evidence.className = "repo-reading-guide-evidence";
+  const symbolsBlock = document.createElement("div"); symbolsBlock.className = "repo-guide-block";
+  symbolsBlock.append(Object.assign(document.createElement("p"), { className: "repo-guide-label", textContent: "Where to begin" }));
+  const symbolList = document.createElement("div"); symbolList.className = "repo-guide-symbols";
+  (guide.symbols || []).slice(0, 6).forEach((symbol, index) => {
+    const button = document.createElement("button"); button.type = "button"; button.dataset.codeLine = String(symbol.line || 1);
+    button.classList.toggle("is-primary", index === 0);
+    button.title = `${symbol.kind || "signal"} ${symbol.name || ""} · line ${symbol.line || 1}${symbol.signature ? `\n${symbol.signature}` : ""}`;
+    button.append(Object.assign(document.createElement("span"), { className: "repo-guide-symbol-kind", textContent: symbol.kind || "signal" }), Object.assign(document.createElement("strong"), { textContent: symbol.name || "Unnamed signal" }), Object.assign(document.createElement("small"), { textContent: `L${symbol.line || 1}` }));
+    button.addEventListener("click", () => repositoryLineJump(symbol.line));
+    symbolList.append(button);
+  });
+  if (!symbolList.children.length) symbolList.append(Object.assign(document.createElement("span"), { className: "repo-guide-empty", textContent: "No named declaration was detected in this sample." }));
+  symbolsBlock.append(symbolList);
+  const importsBlock = document.createElement("div"); importsBlock.className = "repo-guide-block";
+  const importLabel = guide.mode === "manifest" ? "Declared packages" : guide.mode === "document" ? "Document boundary" : "Borrowed surfaces";
+  importsBlock.append(Object.assign(document.createElement("p"), { className: "repo-guide-label", textContent: importLabel }));
+  const importList = document.createElement("div"); importList.className = "repo-guide-imports";
+  (guide.imports || []).slice(0, 7).forEach((item) => {
+    const button = document.createElement("button"); button.type = "button"; button.title = `Jump to line ${item.line || 1}${item.names?.length ? `\n${item.names.join(", ")}` : ""}`;
+    button.append(Object.assign(document.createElement("span"), { textContent: item.source }), Object.assign(document.createElement("small"), { textContent: `L${item.line || 1}` }));
+    button.addEventListener("click", () => repositoryLineJump(item.line));
+    importList.append(button);
+  });
+  if (!importList.children.length) importList.append(Object.assign(document.createElement("span"), { className: "repo-guide-empty", textContent: guide.mode === "document" ? "Read the sections in order; this file does not declare imports." : "No import boundary was detected in this sample." }));
+  importsBlock.append(importList);
+  evidence.append(symbolsBlock, importsBlock);
+  const boundary = document.createElement("p"); boundary.className = "repo-reading-guide-boundary"; boundary.textContent = guide.boundary || "Structural evidence only; the museum did not execute this file.";
+  section.append(top, notice, stats, evidence, boundary);
+  return section;
+}
+
+function repositoryPreviewShell(data, entry, guide = null) {
   const map = data.repositoryMap;
   const order = repositoryReadOrderItem(map, entry.path);
   const article = document.createElement("article"); article.className = "repo-preview-card";
@@ -1648,7 +2061,10 @@ function repositoryPreviewShell(data, entry) {
   }
   const rawUrl = githubRawUrl(data, entry.path);
   if (rawUrl && entry.type === "file") { const raw = document.createElement("a"); raw.href = rawUrl; raw.target = "_blank"; raw.rel = "noreferrer"; raw.textContent = "View raw ↗"; actions.append(raw); }
-  article.append(header, why, facts, content, actions);
+  const readingGuide = entry.type === "file" ? repositoryReadingGuide(entry, guide) : null;
+  article.append(header, why, facts);
+  if (readingGuide) article.append(readingGuide);
+  article.append(content, actions);
   return article;
 }
 
@@ -1672,7 +2088,11 @@ function renderRepositoryPreview(data) {
     else if (state.explorerPreviewState === "error") status.textContent = `Preview failed for ${entry.path}. The source link is still available.`;
     else status.textContent = `A source preview is unavailable for ${entry.path}. The source link is still available.`;
   }
-  const article = repositoryPreviewShell(data, entry);
+  const order = repositoryReadOrderItem(map, entry.path);
+  const readyGuide = state.explorerPreviewState === "ready" && state.explorerPreview?.text
+    ? (order?.readingGuide || state.explorerPreview.guide || buildReadingGuide(entry.path, state.explorerPreview.text, { truncated: state.explorerPreview.truncated }))
+    : order?.readingGuide || null;
+  const article = repositoryPreviewShell(data, entry, readyGuide);
   const content = article.querySelector(".repo-preview-content");
   if (entry.type === "directory") {
     const note = document.createElement("div"); note.className = "repo-preview-note";
@@ -1692,7 +2112,11 @@ function renderRepositoryPreview(data) {
     note.append(title, copy); content.replaceChildren(note);
   } else if (state.explorerPreviewState === "ready" && state.explorerPreview?.text) {
     const pre = document.createElement("pre"); pre.className = "repo-preview-code"; pre.tabIndex = 0;
-    const code = document.createElement("code"); code.textContent = state.explorerPreview.text; pre.append(code);
+    const code = document.createElement("code");
+    String(state.explorerPreview.text).split("\n").forEach((line, index) => {
+      const row = document.createElement("span"); row.className = "repo-code-line"; row.dataset.line = String(index + 1); row.textContent = line || " "; code.append(row);
+    });
+    pre.append(code);
     const caption = document.createElement("p"); caption.className = "repo-preview-caption"; caption.textContent = `${formatNumber(state.explorerPreview.lines)} lines${state.explorerPreview.truncated ? " · preview shortened" : ""}${state.explorerPreview.embedded ? " · embedded by the local Agent" : ""}`;
     content.replaceChildren(pre, caption);
   } else {
@@ -1714,7 +2138,10 @@ async function loadRepositoryPreview(data, entry, requestId) {
   const embedded = entry.preview || order?.preview;
   if (embedded) {
     const text = String(embedded).slice(0, 60_000);
-    setRepositoryPreview(data, "ready", { text, lines: text.split("\n").length, truncated: String(embedded).length > text.length, embedded: true });
+    const truncated = String(embedded).length > text.length || Boolean(order?.previewTruncated);
+    const guide = order?.readingGuide || buildReadingGuide(entry.path, text, { truncated });
+    if (order && guide) order.readingGuide = guide;
+    setRepositoryPreview(data, "ready", { text, lines: text.split("\n").length, truncated, embedded: true, guide });
     return;
   }
   const blocked = previewFallbackReason(entry);
@@ -1730,7 +2157,10 @@ async function loadRepositoryPreview(data, entry, requestId) {
     if (looksBinaryText(text)) { setRepositoryPreview(data, "fallback", { message: "This file appears to contain binary content. Open it at the source instead." }); return; }
     if (requestId !== state.explorerRequestId || state.explorerPath !== entry.path) return;
     const shortened = text.slice(0, 60_000);
-    setRepositoryPreview(data, "ready", { text: shortened, lines: shortened.split("\n").length, truncated: text.length > shortened.length, embedded: false });
+    const truncated = text.length > shortened.length;
+    const guide = buildReadingGuide(entry.path, shortened, { truncated });
+    if (order && guide) order.readingGuide = guide;
+    setRepositoryPreview(data, "ready", { text: shortened, lines: shortened.split("\n").length, truncated, embedded: false, guide });
   } catch (error) {
     if (error.name === "AbortError" || requestId !== state.explorerRequestId) return;
     setRepositoryPreview(data, "error", { message: `${error.message || "GitHub raw did not respond."} The source link below still points to the tracked path.` });
