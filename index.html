@@ -179,17 +179,28 @@
                 <span class="field-discovery-mode" id="field-discovery-mode">AGENT READING · MIXED</span>
               </div>
               <div class="field-discovery-main">
-                <p class="subsection-label">What the Agent found</p>
-                <h4 id="field-discovery-title">A cross-file discovery is being assembled.</h4>
-                <p class="field-discovery-summary" id="field-discovery-summary">The museum is comparing the repository's public entrance, working parts, and evidence boundary.</p>
-                <p class="field-discovery-why" id="field-discovery-why"></p>
+                <div class="field-discovery-dossier">
+                  <div class="field-discovery-copy">
+                    <p class="subsection-label">What the Agent found</p>
+                    <h4 id="field-discovery-title">A cross-file discovery is being assembled.</h4>
+                    <p class="field-discovery-summary" id="field-discovery-summary">The museum is comparing the repository's public entrance, working parts, and evidence boundary.</p>
+                    <p class="field-discovery-why" id="field-discovery-why"></p>
+                  </div>
+                  <div class="field-discovery-trace" aria-labelledby="field-discovery-trace-title">
+                    <div class="field-discovery-trace-head">
+                      <span id="field-discovery-trace-title">Evidence constellation</span>
+                      <strong id="field-discovery-trace-count">Reading sources</strong>
+                    </div>
+                    <div class="field-discovery-trace-canvas" id="field-discovery-trace-canvas"></div>
+                    <p class="field-discovery-trace-readout" id="field-discovery-trace-readout" role="status" aria-live="polite">Select a node to inspect the evidence behind this finding.</p>
+                  </div>
+                </div>
                 <div class="field-discovery-evidence" id="field-discovery-evidence" aria-label="Evidence for the Agent discovery"></div>
                 <div class="field-discovery-footer">
                   <p class="field-discovery-boundary" id="field-discovery-boundary">Structural evidence only; no runtime claim is made.</p>
                   <button type="button" class="field-discovery-route" id="field-discovery-route">Open the evidence route <span aria-hidden="true">↗</span></button>
                 </div>
               </div>
-              <div class="field-discovery-stamp" aria-hidden="true"><span>READ</span><strong>01</strong><span>VERIFY</span></div>
             </section>
 
             <div class="exhibition-layout">
@@ -257,7 +268,14 @@
                   <div class="architecture-intro"><p id="architecture-summary">The Agent is reading the project's visible structure.</p><span class="evidence-label">Observed from the current tree</span></div>
                   <div class="machine-map" id="machine-map"></div>
                   <div class="architecture-spotlight" id="architecture-spotlight"><p class="subsection-label">Select a part of the blueprint</p><strong id="architecture-spotlight-title">The repository is a set of responsibilities.</strong><p id="architecture-spotlight-copy">Choose a node above to connect its role to the visitor path.</p><a id="architecture-spotlight-source" href="#" target="_blank" rel="noreferrer">Open evidence ↗</a></div>
-                  <div class="repo-explorer" id="repo-explorer" aria-labelledby="repo-explorer-title">
+                  <details class="repo-atlas-disclosure" id="repo-atlas-disclosure" open>
+                    <summary>
+                      <span class="repo-atlas-summary-kicker">Repository atlas</span>
+                      <strong>Open the evidence desk</strong>
+                      <span class="repo-atlas-summary-note">Indexed paths, guided investigations, and source reading</span>
+                      <i aria-hidden="true"></i>
+                    </summary>
+                    <div class="repo-explorer" id="repo-explorer" aria-labelledby="repo-explorer-title">
                     <div class="repo-explorer-heading">
                       <div><p class="subsection-label">Repository atlas</p><h5 id="repo-explorer-title">Ask a question, then follow the evidence.</h5></div>
                       <div class="repo-map-metrics" id="repo-map-metrics" aria-live="polite"></div>
@@ -277,7 +295,17 @@
                         <p class="repo-investigation-boundary" id="repo-investigation-boundary">Structural evidence only.</p>
                       </div>
                     </div>
-                    <div class="repo-explorer-workbench">
+                    <div class="repo-workbench-switch" role="group" aria-label="Repository atlas view">
+                      <button class="repo-workbench-tab is-active" type="button" data-repo-pane="preview" aria-pressed="true">
+                        <span>Reading desk</span>
+                        <small id="repo-pane-preview-meta">README.md</small>
+                      </button>
+                      <button class="repo-workbench-tab" type="button" data-repo-pane="browser" aria-pressed="false">
+                        <span>Path index</span>
+                        <small id="repo-pane-browser-meta">0 paths</small>
+                      </button>
+                    </div>
+                    <div class="repo-explorer-workbench" id="repo-explorer-workbench" data-mobile-pane="preview">
                       <div class="repo-browser">
                         <label class="repo-search" for="repo-map-search"><span class="sr-only">Search every indexed repository path</span><span aria-hidden="true">↳</span><input id="repo-map-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search every tracked path…" /></label>
                         <div class="repo-map-filters" id="repo-map-filters" role="group" aria-label="Filter repository paths"></div>
@@ -288,8 +316,9 @@
                       <p class="sr-only" id="repo-preview-status" role="status" aria-live="polite"></p>
                       <article class="repo-preview" id="repo-preview" aria-busy="false"></article>
                     </div>
-                    <p class="repo-map-footnote"><span aria-hidden="true">◇</span> The route is a reading suggestion, not a claim about runtime execution. Every file opens from the tracked tree and links back to GitHub.</p>
-                  </div>
+                      <p class="repo-map-footnote"><span aria-hidden="true">◇</span> The route is a reading suggestion, not a claim about runtime execution. Every file opens from the tracked tree and links back to GitHub.</p>
+                    </div>
+                  </details>
                   <div class="architecture-grid"><div><p class="subsection-label">Main rooms</p><div class="architecture-list" id="architecture-folders"></div></div><div><p class="subsection-label">Important objects</p><div class="architecture-list" id="architecture-files"></div></div></div>
                   <div class="entrypoint-strip"><span class="subsection-label">Where the visit can begin</span><div id="architecture-entrypoints"></div></div>
                   <div class="panel-footer"><span id="architecture-source-note">Every role is an evidence-backed reading, not a claim about intent.</span><a class="source-chip" id="architecture-source" href="#" target="_blank" rel="noreferrer">↗ Open repository tree</a></div>

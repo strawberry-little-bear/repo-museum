@@ -159,6 +159,7 @@ const state = {
   explorerFilter: "all",
   explorerPath: "",
   explorerInvestigation: "",
+  explorerMobilePane: "preview",
   explorerPreview: null,
   explorerPreviewState: "idle",
   explorerRequestId: 0,
@@ -1827,17 +1828,39 @@ function showError(message, status = 0) {
 }
 
 function renderStats(data) {
+  const map = data.repositoryMap || {};
+  const evidence = fieldDiscoveryFor(data)?.evidence || [];
+  const phases = phaseList(data);
+  const fileCount = Number(map.totalFiles) || 0;
+  const directoryCount = Number(map.totalDirectories) || 0;
   const stats = [
-    ["Stars", formatNumber(data.stars)],
-    ["Forks", formatNumber(data.forks)],
-    ["Open issues", formatNumber(data.issues)],
-    ["Observed", relativeDate(data.pushedAt)],
+    {
+      label: "Archive indexed",
+      value: fileCount ? `${formatNumber(fileCount)} files` : "Partial record",
+      note: directoryCount ? `${formatNumber(directoryCount)} folders read` : "visible tree only",
+    },
+    {
+      label: "Cross-file trace",
+      value: evidence.length ? `${String(evidence.length).padStart(2, "0")} sources` : "No route",
+      note: evidence.length ? "connected by the Agent" : "evidence left open",
+    },
+    {
+      label: "Dated chapters",
+      value: phases.length ? `${String(phases.length).padStart(2, "0")} phases` : "Undated",
+      note: phases.length ? "sampled public record" : "no dated claims",
+    },
+    {
+      label: "Last observed",
+      value: data.pushedAt ? relativeDate(data.pushedAt) : "Not sampled",
+      note: data.pushedAt ? "latest public marker" : "source boundary visible",
+    },
   ];
-  el("stat-strip").replaceChildren(...stats.map(([label, value]) => {
-    const item = document.createElement("div"); item.className = "stat";
+  el("stat-strip").replaceChildren(...stats.map(({ label, value, note }, index) => {
+    const item = document.createElement("div"); item.className = "stat"; item.style.setProperty("--stat-index", index);
     const labelNode = document.createElement("span"); labelNode.className = "stat-label"; labelNode.textContent = label;
     const valueNode = document.createElement("strong"); valueNode.className = "stat-value"; valueNode.textContent = value;
-    item.append(labelNode, valueNode); return item;
+    const noteNode = document.createElement("small"); noteNode.className = "stat-note"; noteNode.textContent = note;
+    item.append(labelNode, valueNode, noteNode); return item;
   }));
 }
 
@@ -1931,18 +1954,22 @@ function renderFieldDiscovery(data) {
   const discovery = fieldDiscoveryFor(data);
   section.hidden = !discovery;
   if (!discovery) return;
+  const evidenceItems = (discovery.evidence || []).slice(0, 5);
   el("field-discovery-mode").textContent = `${discovery.label || "Agent reading"} · ${discovery.mode || "mixed"}`.toUpperCase();
   el("field-discovery-title").textContent = discovery.title;
   el("field-discovery-summary").textContent = discovery.summary;
   el("field-discovery-why").textContent = discovery.whyItMatters || "";
   el("field-discovery-why").hidden = !discovery.whyItMatters;
   el("field-discovery-boundary").textContent = discovery.boundary || "Structural evidence only; no runtime claim is made.";
+
   const evidence = el("field-discovery-evidence");
-  evidence.replaceChildren(...(discovery.evidence || []).map((item, index) => {
+  const evidenceLinks = evidenceItems.map((item, index) => {
     const link = document.createElement("a");
     link.href = sourceHref(data, item);
     link.target = "_blank";
     link.rel = "noreferrer";
+    link.dataset.index = String(index);
+    link.dataset.type = item.type || "file";
     const number = document.createElement("span");
     number.className = "field-discovery-evidence-index";
     number.textContent = String(index + 1).padStart(2, "0");
@@ -1954,10 +1981,133 @@ function renderFieldDiscovery(data) {
     copy.append(ref, claim);
     link.append(number, copy, Object.assign(document.createElement("i"), { textContent: "↗" }));
     return link;
-  }));
-  if (!evidence.children.length) {
+  });
+  evidence.replaceChildren(...evidenceLinks);
+  if (!evidenceLinks.length) {
     evidence.append(Object.assign(document.createElement("span"), { className: "empty-note", textContent: "No direct evidence link was supplied for this finding." }));
   }
+
+  const canvas = el("field-discovery-trace-canvas");
+  const readout = el("field-discovery-trace-readout");
+  const traceCount = el("field-discovery-trace-count");
+  const types = new Set(evidenceItems.map((item) => item.type || "file"));
+  traceCount.textContent = evidenceItems.length
+    ? `${String(evidenceItems.length).padStart(2, "0")} ${evidenceItems.length === 1 ? "source" : "sources"} · ${types.size} ${types.size === 1 ? "type" : "types"}`
+    : "Boundary open";
+  canvas.replaceChildren();
+  if (!evidenceItems.length) {
+    canvas.classList.add("is-empty");
+    canvas.append(Object.assign(document.createElement("span"), { className: "field-discovery-trace-empty", textContent: "No source constellation was supplied." }));
+    readout.textContent = "The finding remains visible while its direct evidence is missing.";
+    return;
+  }
+  canvas.classList.remove("is-empty");
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 400 230");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.classList.add("field-discovery-trace-svg");
+  for (const [x1, y1, x2, y2] of [[18, 115, 382, 115], [200, 14, 200, 216]]) {
+    const guide = document.createElementNS(SVG_NS, "line");
+    guide.setAttribute("x1", String(x1)); guide.setAttribute("y1", String(y1));
+    guide.setAttribute("x2", String(x2)); guide.setAttribute("y2", String(y2));
+    guide.classList.add("field-trace-guide");
+    svg.append(guide);
+  }
+  const orbit = document.createElementNS(SVG_NS, "circle");
+  orbit.setAttribute("cx", "200"); orbit.setAttribute("cy", "115"); orbit.setAttribute("r", "72");
+  orbit.classList.add("field-trace-orbit");
+  svg.append(orbit);
+
+  const layouts = {
+    1: [{ x: 310, y: 60 }],
+    2: [{ x: 70, y: 62 }, { x: 326, y: 157 }],
+    3: [{ x: 64, y: 58 }, { x: 334, y: 50 }, { x: 316, y: 187 }],
+    4: [{ x: 58, y: 54 }, { x: 320, y: 43 }, { x: 348, y: 143 }, { x: 58, y: 182 }],
+    5: [{ x: 70, y: 48 }, { x: 305, y: 37 }, { x: 318, y: 124 }, { x: 290, y: 194 }, { x: 64, y: 166 }],
+  };
+  const positions = layouts[Math.min(5, evidenceItems.length)];
+  const lineByIndex = new Map();
+  const nodeByIndex = new Map();
+  positions.forEach((point, index) => {
+    const midX = (200 + point.x) / 2;
+    const bend = index % 2 === 0 ? -20 : 20;
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", `M 200 115 Q ${midX} ${(115 + point.y) / 2 + bend} ${point.x} ${point.y}`);
+    path.classList.add("field-trace-line");
+    svg.append(path);
+    lineByIndex.set(index, path);
+  });
+  canvas.append(svg);
+
+  const core = document.createElement("div");
+  core.className = "field-trace-core";
+  const coreKicker = document.createElement("span"); coreKicker.textContent = "AGENT";
+  const coreTitle = document.createElement("strong"); coreTitle.textContent = "SYNTHESIS";
+  const coreCount = document.createElement("small"); coreCount.textContent = `${evidenceItems.length} linked`;
+  core.append(coreKicker, coreTitle, coreCount);
+  canvas.append(core);
+
+  const compactLabel = (item) => {
+    const ref = String(item.label || item.ref || "source").replace(/\/$/, "");
+    const parts = ref.split("/");
+    const base = parts.at(-1) || ref;
+    return base.length > 17 ? `${base.slice(0, 15)}…` : base;
+  };
+  positions.forEach((point, index) => {
+    const item = evidenceItems[index];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "field-trace-node";
+    button.style.left = `${(point.x / 400) * 100}%`;
+    button.style.top = `${(point.y / 230) * 100}%`;
+    button.setAttribute("aria-label", `Inspect evidence ${index + 1}: ${item.label || item.ref || "source"}`);
+    const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
+    const label = document.createElement("strong"); label.textContent = compactLabel(item);
+    button.append(number, label);
+    button.dataset.index = String(index);
+    button.dataset.type = item.type || "file";
+    button.setAttribute("aria-pressed", "false");
+    canvas.append(button);
+    nodeByIndex.set(index, button);
+  });
+
+  let selectedIndex = -1;
+  const defaultReadout = "Select a node to inspect the evidence behind this finding.";
+  const renderFocus = (index) => {
+    lineByIndex.forEach((line, lineIndex) => line.classList.toggle("is-active", lineIndex === index));
+    nodeByIndex.forEach((node, nodeIndex) => {
+      const active = nodeIndex === index;
+      node.classList.toggle("is-active", active);
+      node.setAttribute("aria-pressed", String(active));
+    });
+    evidenceLinks.forEach((link, linkIndex) => link.classList.toggle("is-inspecting", linkIndex === index));
+    if (index < 0 || !evidenceItems[index]) {
+      readout.textContent = defaultReadout;
+      return;
+    }
+    const item = evidenceItems[index];
+    readout.textContent = `${item.label || item.ref || "Source"} — ${item.claim || "Open this source to inspect the finding."}`;
+  };
+  const inspect = (index, persist = false) => {
+    if (persist) selectedIndex = selectedIndex === index ? -1 : index;
+    renderFocus(selectedIndex >= 0 && persist ? selectedIndex : index);
+  };
+  nodeByIndex.forEach((node, index) => {
+    node.addEventListener("pointerenter", () => inspect(index));
+    node.addEventListener("focus", () => inspect(index));
+    node.addEventListener("click", () => inspect(index, true));
+  });
+  evidenceLinks.forEach((link, index) => {
+    link.addEventListener("pointerenter", () => inspect(index));
+    link.addEventListener("focus", () => inspect(index));
+  });
+  canvas.addEventListener("pointerleave", () => renderFocus(selectedIndex));
+  evidence.addEventListener("pointerleave", () => renderFocus(selectedIndex));
+  renderFocus(-1);
+
   const route = el("field-discovery-route");
   route.dataset.investigation = discovery.route || "";
   route.hidden = !discovery.route;
@@ -2091,6 +2241,7 @@ function resetRepositoryExplorer() {
   state.explorerFilter = "all";
   state.explorerPath = "";
   state.explorerInvestigation = "";
+  state.explorerMobilePane = "preview";
   state.explorerPreview = null;
   state.explorerPreviewState = "idle";
   state.explorerRequestId += 1;
@@ -2255,6 +2406,7 @@ function renderRepositoryList(data) {
   el("repo-map-count").textContent = matches.length === (map?.entries?.length || 0)
     ? `${formatNumber(matches.length)} path${matches.length === 1 ? "" : "s"}`
     : `${formatNumber(matches.length)} match${matches.length === 1 ? "" : "es"}`;
+  updateRepositoryWorkbenchChrome(data);
   if (!matches.length) {
     el("repo-map-list").replaceChildren(Object.assign(document.createElement("p"), { className: "repo-map-empty", textContent: "No indexed path matches this reading filter. Try a broader file name or folder." }));
     return;
@@ -2469,15 +2621,47 @@ async function loadRepositoryPreview(data, entry, requestId) {
 function selectRepositoryPath(data, path) {
   const entry = repositoryMapEntry(data.repositoryMap, path);
   if (!entry) return;
+  const atlas = el("repo-atlas-disclosure");
+  if (atlas) atlas.open = true;
   state.explorerPath = entry.path;
+  state.explorerMobilePane = "preview";
   state.explorerPreview = null;
   state.explorerPreviewState = entry.type === "directory" ? "ready" : "loading";
   state.explorerRequestId += 1;
   const requestId = state.explorerRequestId;
+  updateRepositoryWorkbenchChrome(data);
   renderRepositoryRoute(data);
   renderRepositoryList(data);
   renderRepositoryPreview(data);
   if (entry.type !== "directory") loadRepositoryPreview(data, entry, requestId);
+}
+
+function updateRepositoryWorkbenchChrome(data) {
+  const workbench = el("repo-explorer-workbench");
+  if (!workbench) return;
+  workbench.dataset.mobilePane = state.explorerMobilePane;
+  document.querySelectorAll("[data-repo-pane]").forEach((button) => {
+    const active = button.dataset.repoPane === state.explorerMobilePane;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  const visiblePath = state.explorerPath || data?.repositoryMap?.readOrder?.[0]?.path || "Choose a path";
+  const previewMeta = el("repo-pane-preview-meta");
+  const browserMeta = el("repo-pane-browser-meta");
+  if (previewMeta) previewMeta.textContent = visiblePath.split("/").pop() || visiblePath;
+  if (browserMeta) {
+    const count = repositoryFilterEntries(data?.repositoryMap).length;
+    browserMeta.textContent = `${formatNumber(count)} path${count === 1 ? "" : "s"}`;
+  }
+}
+
+function setRepositoryWorkbenchPane(data, pane, { focus = false } = {}) {
+  if (!["browser", "preview"].includes(pane)) return;
+  state.explorerMobilePane = pane;
+  updateRepositoryWorkbenchChrome(data);
+  if (focus && pane === "browser" && window.matchMedia("(max-width: 720px)").matches) {
+    window.requestAnimationFrame(() => el("repo-map-search")?.focus({ preventScroll: true }));
+  }
 }
 
 function renderRepositoryExplorer(data) {
@@ -2500,6 +2684,7 @@ function renderRepositoryExplorer(data) {
   renderRepositoryFilters(data);
   renderRepositoryList(data);
   renderRepositoryPreview(data);
+  updateRepositoryWorkbenchChrome(data);
   if (initialPath && entryChanged) {
     state.explorerRequestId += 1;
     const entry = repositoryMapEntry(map, initialPath);
@@ -2686,7 +2871,16 @@ function renderLearning(data) {
     const reveal = document.createElement("p"); reveal.textContent = room.reveal || room.whyItMatters || "Open the evidence to inspect the reading.";
     details.append(summary, reveal);
     guide.append(guideMeta, scene, plain, details);
-    panel.querySelector(".panel-heading")?.after(guide);
+    const interactionAnchor = panel.querySelector({
+      "hall-overview": ".orientation-block",
+      "hall-journey": ".journey-flow",
+      "hall-architecture": ".machine-map",
+      "hall-history": ".history-arc",
+      "hall-dependencies": ".aquarium-stage",
+      "hall-opera": ".learned-list",
+    }[room.id] || "");
+    if (interactionAnchor) interactionAnchor.after(guide);
+    else panel.querySelector(".panel-heading")?.after(guide);
     const discovery = document.createElement("div"); discovery.className = "room-discovery";
     const discoveryLabel = document.createElement("p"); discoveryLabel.textContent = "What this room revealed";
     const discoveryCopy = document.createElement("strong"); discoveryCopy.textContent = room.discovery || roomDiscoveryFallback(data, room);
@@ -3229,7 +3423,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const enterMuseum = () => {
     state.entered = true;
     document.body.classList.add("museum-entered");
-    window.setTimeout(() => entrance?.remove(), 900);
+    window.setTimeout(() => entrance?.remove(), 460);
     document.querySelector("#repo-input")?.focus({ preventScroll: true });
   };
   el("enter-museum")?.addEventListener("click", enterMuseum);
@@ -3250,6 +3444,15 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
     const first = el("repo-map-list").querySelector(".repo-entry");
     if (first) first.click();
+  });
+  document.querySelectorAll("[data-repo-pane]").forEach((button) => {
+    button.addEventListener("click", () => setRepositoryWorkbenchPane(state.data, button.dataset.repoPane, { focus: true }));
+  });
+  const atlasDisclosure = el("repo-atlas-disclosure");
+  const mobileAtlasQuery = window.matchMedia("(max-width: 720px)");
+  if (atlasDisclosure && mobileAtlasQuery.matches) atlasDisclosure.open = false;
+  mobileAtlasQuery.addEventListener?.("change", (event) => {
+    if (atlasDisclosure && !event.matches) atlasDisclosure.open = true;
   });
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".understand-button");
@@ -3300,6 +3503,8 @@ document.addEventListener("DOMContentLoaded", () => {
   el("field-discovery-route").addEventListener("click", () => {
     const investigationId = el("field-discovery-route").dataset.investigation;
     if (investigationId && state.data?.repositoryMap) {
+      const atlas = el("repo-atlas-disclosure");
+      if (atlas) atlas.open = true;
       state.explorerInvestigation = investigationId;
       renderRepositoryRoute(state.data);
     }
