@@ -91,6 +91,73 @@
         "boundary": { "type": "string" }
       }
     },
+    "signalNode": {
+      "type": "object",
+      "required": ["id", "type", "label", "role", "inbound", "outbound", "unresolved"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["file", "package"] },
+        "label": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "package": { "type": "string", "minLength": 1 },
+        "role": { "type": "string" },
+        "kind": { "type": "string" },
+        "category": { "type": "string" },
+        "extension": { "type": "string" },
+        "declarations": { "type": "integer", "minimum": 0 },
+        "imports": { "type": "integer", "minimum": 0 },
+        "inbound": { "type": "integer", "minimum": 0 },
+        "outbound": { "type": "integer", "minimum": 0 },
+        "unresolved": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "file" } }, "required": ["type"] },
+          "then": { "required": ["path"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "package" } }, "required": ["type"] },
+          "then": { "required": ["package"] }
+        }
+      ]
+    },
+    "signalEdge": {
+      "type": "object",
+      "required": ["id", "from", "to", "sourcePath", "targetPath", "importSource", "names", "line", "resolution"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "targetPath": { "type": "string" },
+        "importSource": { "type": "string", "minLength": 1 },
+        "names": { "type": "array", "items": { "type": "string" } },
+        "line": { "type": "integer", "minimum": 1 },
+        "resolution": { "enum": ["tracked-path", "external", "unresolved"] }
+      }
+    },
+    "signalGraph": {
+      "type": "object",
+      "required": ["model", "generator", "nodes", "edges", "metrics", "boundary"],
+      "properties": {
+        "model": { "const": "declared-structure/v1" },
+        "generator": { "enum": ["browser", "agent"] },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/signalNode" } },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/signalEdge" } },
+        "metrics": {
+          "type": "object",
+          "required": ["sourceFiles", "externalBoundaries", "references", "internalEdges", "unresolvedReferences"],
+          "properties": {
+            "sourceFiles": { "type": "integer", "minimum": 0 },
+            "externalBoundaries": { "type": "integer", "minimum": 0 },
+            "references": { "type": "integer", "minimum": 0 },
+            "internalEdges": { "type": "integer", "minimum": 0 },
+            "unresolvedReferences": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "boundary": { "type": "string", "minLength": 1 }
+      }
+    },
     "repositoryMap": {
       "type": "object",
       "required": ["root", "branch", "truncated", "totalFiles", "totalDirectories", "indexedEntries", "extensions", "directories", "readOrder", "entries", "coverageNote"],
@@ -143,6 +210,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/investigation" }
         },
+        "signalGraph": { "$ref": "#/$defs/signalGraph" },
         "entries": {
           "type": "array",
           "items": {

@@ -160,6 +160,9 @@ const state = {
   explorerPath: "",
   explorerInvestigation: "",
   explorerMobilePane: "preview",
+  signalFilter: "all",
+  signalSelection: null,
+  signalPendingJump: null,
   explorerPreview: null,
   explorerPreviewState: "idle",
   explorerRequestId: 0,
@@ -480,7 +483,7 @@ const LEARNING_FOLDERS = new Set(["docs", "doc", "website", "site", "examples", 
 const SUPPORT_FOLDERS = new Set(["scripts", "tools", "bin", "config", "configs", "assets", "public", "static", "styles", ".github", ".repo-museum", ".vscode", ".idea"]);
 const GENERATED_FOLDERS = new Set(["node_modules", "vendor", "dist", "build", "coverage", "__pycache__", ".cache"]);
 const REPOSITORY_MANIFESTS = new Set(["package.json", "pyproject.toml", "requirements.txt", "cargo.toml", "go.mod", "composer.json", "gemfile", "pom.xml", "build.gradle", "build.gradle.kts", "deno.json", "bun.lockb"]);
-const CODE_EXTENSIONS = new Set([".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".rs", ".go", ".rb", ".java", ".kt", ".kts", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php", ".scala", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".jl", ".sh", ".bash", ".zsh", ".ps1", ".sql"]);
+const CODE_EXTENSIONS = new Set([".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".rs", ".go", ".rb", ".java", ".kt", ".kts", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php", ".scala", ".ex", ".exs", ".erl", ".hs", ".lua", ".r", ".jl", ".sh", ".bash", ".zsh", ".ps1", ".sql", ".html", ".htm"]);
 const STYLE_EXTENSIONS = new Set([".css", ".scss", ".sass", ".less", ".styl"]);
 const DOCUMENT_EXTENSIONS = new Set([".md", ".mdx", ".rst", ".adoc", ".txt"]);
 const CONFIG_EXTENSIONS = new Set([".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".xml", ".gradle", ".properties"]);
@@ -496,7 +499,7 @@ const SOURCE_LANGUAGES = new Map([
   [".scala", "Scala"], [".ex", "Elixir"], [".exs", "Elixir"], [".erl", "Erlang"],
   [".hs", "Haskell"], [".lua", "Lua"], [".r", "R"], [".jl", "Julia"], [".sh", "Shell"],
   [".bash", "Shell"], [".zsh", "Shell"], [".ps1", "PowerShell"], [".sql", "SQL"],
-  [".css", "CSS"], [".scss", "Sass"], [".sass", "Sass"], [".less", "Less"],
+  [".html", "HTML"], [".htm", "HTML"], [".css", "CSS"], [".scss", "Sass"], [".sass", "Sass"], [".less", "Less"],
   [".md", "Markdown"], [".mdx", "Markdown"], [".rst", "reStructuredText"], [".adoc", "AsciiDoc"],
   [".json", "JSON"], [".yaml", "YAML"], [".yml", "YAML"], [".toml", "TOML"],
 ]);
@@ -792,6 +795,24 @@ function buildReadingGuide(path, text, options = {}) {
         if (arrow) addSymbol(arrow[1], /^[A-Z]/.test(arrow[1]) ? "component" : "function", lineNumber, line);
         if (plainFn) addSymbol(plainFn[1], "function", lineNumber, line);
       }
+    } else if (extension === ".html" || extension === ".htm") {
+      const scriptReference = line.match(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i);
+      const linkReference = line.match(/<link\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
+      const mediaReference = line.match(/<(?:img|source|video|audio)\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i);
+      [scriptReference, linkReference, mediaReference].forEach((match) => {
+        if (match?.[1] && !/^(?:[a-z]+:|#|\/\/)/i.test(match[1])) addImport(match[1], lineNumber);
+      });
+      const title = line.match(/<title[^>]*>([^<]+)<\/title>/i);
+      if (title) addSymbol(title[1].trim(), "document title", lineNumber, line);
+      const landmark = line.match(/<(main|nav|header|footer|aside|section)\b[^>]*\bid\s*=\s*["']([^"']+)["']/i);
+      if (landmark) addSymbol(landmark[2], `${landmark[1].toLowerCase()} landmark`, lineNumber, line);
+    } else if ([".css", ".scss", ".sass", ".less"].includes(extension)) {
+      const cssImport = line.match(/@import\s+(?:url\(\s*)?["']([^"')]+)["']/);
+      if (cssImport?.[1] && !/^(?:[a-z]+:|\/\/)/i.test(cssImport[1])) addImport(cssImport[1], lineNumber);
+      if (topLevel) {
+        const rule = raw.match(/^([^@\s][^{]+)\{/);
+        if (rule) addSymbol(rule[1].trim().slice(0, 90), "style rule", lineNumber, line);
+      }
     } else if (extension === ".go") {
       if (/^import\s*\(/.test(line)) { inGoImportBlock = true; return; }
       if (inGoImportBlock && line === ")") { inGoImportBlock = false; return; }
@@ -1077,7 +1098,7 @@ function buildRepositoryMap(sourceEntries = [], options = {}) {
   for (const item of readOrder) {
     if (item.preview) item.readingGuide = buildReadingGuide(item.path, item.preview, { truncated: item.preview.length >= 60_000 });
   }
-  return {
+  const repositoryMap = {
     root: "",
     branch: options.branch || "main",
     truncated: Boolean(options.truncated),
@@ -1091,8 +1112,179 @@ function buildRepositoryMap(sourceEntries = [], options = {}) {
     entries,
     coverageNote: options.truncated ? "GitHub marked this recursive tree as truncated; the explorer indexes only the paths returned before that boundary." : "Every path returned by the current recursive tree is indexed.",
   };
+  repositoryMap.signalGraph = buildRepositorySignalGraph(repositoryMap);
+  return repositoryMap;
 }
 
+function normalizeRepositorySignalPath(path) {
+  const parts = [];
+  String(path || "").replace(/\\/g, "/").split("/").forEach((part) => {
+    if (!part || part === ".") return;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  });
+  return parts.join("/");
+}
+
+function signalImportCleanSource(source) {
+  return String(source || "").trim().replace(/[?#].*$/, "");
+}
+
+function signalCandidatePaths(basePath, filePaths) {
+  const base = normalizeRepositorySignalPath(basePath);
+  if (!base) return [];
+  const candidates = [base];
+  if (!pathExtension(base)) {
+    [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".py", ".rs", ".go", ".html", ".css", ".scss"].forEach((extension) => candidates.push(`${base}${extension}`));
+    ["index", "__init__"].forEach((name) => {
+      [".js", ".ts", ".tsx", ".jsx", ".py", ".html"].forEach((extension) => candidates.push(`${base}/${name}${extension}`));
+    });
+  }
+  return candidates.filter((candidate) => filePaths.has(candidate));
+}
+
+function resolveRepositorySignalImport(sourcePath, importSource, guideMode, filePaths) {
+  const raw = signalImportCleanSource(importSource);
+  if (!raw || guideMode === "manifest") return "";
+  const extension = pathExtension(sourcePath);
+  const sourceDirectory = sourcePath.includes("/") ? sourcePath.split("/").slice(0, -1).join("/") : "";
+
+  if (extension === ".py" && /^\.+[A-Za-z_]/.test(raw)) {
+    const dotCount = raw.match(/^\.+/)?.[0].length || 0;
+    const tail = raw.slice(dotCount).replace(/\./g, "/");
+    const directoryParts = sourceDirectory ? sourceDirectory.split("/") : [];
+    const parentDirectory = directoryParts.slice(0, Math.max(0, directoryParts.length - Math.max(0, dotCount - 1))).join("/");
+    const matches = signalCandidatePaths([parentDirectory, tail].filter(Boolean).join("/"), filePaths);
+    return matches.length === 1 ? matches[0] : "";
+  }
+
+  if (/^\.{1,2}(?:\/|$)/.test(raw) || raw.startsWith("/")) {
+    const relative = raw.startsWith("/") ? raw.slice(1) : [sourceDirectory, raw].filter(Boolean).join("/");
+    const matches = signalCandidatePaths(relative, filePaths);
+    return matches.length === 1 ? matches[0] : "";
+  }
+
+  const directCandidates = [];
+  if (raw.startsWith("@/")) directCandidates.push(raw.slice(2));
+  directCandidates.push(raw);
+  if (extension === ".py" && raw.includes(".")) {
+    const dotted = raw.replace(/\./g, "/");
+    directCandidates.push(dotted, `src/${dotted}`, `python/${dotted}`);
+  }
+  const matches = [...new Set(directCandidates.flatMap((candidate) => signalCandidatePaths(candidate, filePaths)))];
+  return matches.length === 1 ? matches[0] : "";
+}
+
+function buildRepositorySignalGraph(repositoryMap) {
+  const filePaths = new Set((repositoryMap?.entries || []).filter((entry) => entry.type === "file").map((entry) => entry.path));
+  const sourceItems = (repositoryMap?.readOrder || []).filter((item) => item.path && item.readingGuide && filePaths.has(item.path));
+  const fileNodes = new Map();
+  const packageNodes = new Map();
+  const edges = [];
+  const edgeKeys = new Set();
+
+  const ensureFileNode = (path, item = null) => {
+    const id = `file:${path}`;
+    if (!path || !filePaths.has(path) || fileNodes.has(id)) return fileNodes.get(id) || null;
+    const guide = item?.readingGuide || {};
+    const entry = repositoryMapEntry(repositoryMap, path);
+    const node = {
+      id,
+      type: "file",
+      label: pathBasename(path),
+      path,
+      role: item?.role || entry?.role || categoryLabel(entry?.kind),
+      kind: item?.kind || "source",
+      category: entry?.category || "code",
+      extension: pathExtension(path) || "(none)",
+      declarations: guide.symbols?.length || 0,
+      imports: guide.imports?.length || 0,
+      inbound: 0,
+      outbound: 0,
+      unresolved: false,
+    };
+    fileNodes.set(id, node);
+    return node;
+  };
+
+  sourceItems.forEach((item) => ensureFileNode(item.path, item));
+
+  sourceItems.forEach((item) => {
+    const guide = item.readingGuide || {};
+    (guide.imports || []).forEach((reference) => {
+      const importSource = signalImportCleanSource(reference.source);
+      if (!importSource) return;
+      const resolvedPath = resolveRepositorySignalImport(item.path, importSource, guide.mode, filePaths);
+      const unresolvedBoundary = /^\.{1,2}(?:\/|[A-Za-z_])/.test(importSource) || importSource.startsWith("/");
+      const to = resolvedPath ? `file:${resolvedPath}` : `package:${importSource}`;
+      const resolution = resolvedPath ? "tracked-path" : unresolvedBoundary ? "unresolved" : "external";
+      const key = `${item.path}\u0000${reference.line || 0}\u0000${importSource}`;
+      if (edgeKeys.has(key) || resolvedPath === item.path) return;
+      edgeKeys.add(key);
+      edges.push({
+        id: "",
+        from: `file:${item.path}`,
+        to,
+        sourcePath: item.path,
+        targetPath: resolvedPath || "",
+        importSource,
+        names: Array.isArray(reference.names) ? reference.names : [],
+        line: Math.max(1, Number(reference.line) || 1),
+        resolution,
+      });
+      if (resolvedPath) {
+        ensureFileNode(resolvedPath);
+      } else {
+        const existing = packageNodes.get(importSource) || {
+          id: to,
+          type: "package",
+          label: importSource,
+          package: importSource,
+          role: guide.mode === "manifest" ? "Declared dependency boundary" : "External package boundary",
+          declarations: 0,
+          imports: 0,
+          inbound: 0,
+          outbound: 0,
+          unresolved: false,
+        };
+        existing.inbound += 1;
+        existing.unresolved ||= resolution === "unresolved";
+        packageNodes.set(importSource, existing);
+      }
+    });
+  });
+
+  edges.sort((left, right) => left.sourcePath.localeCompare(right.sourcePath) || left.line - right.line || left.importSource.localeCompare(right.importSource));
+  edges.forEach((edge, index) => { edge.id = `edge:${index}`; });
+  edges.forEach((edge) => {
+    const fromNode = fileNodes.get(edge.from);
+    if (fromNode) {
+      fromNode.outbound += 1;
+      fromNode.unresolved ||= edge.resolution === "unresolved";
+    }
+    const toNode = fileNodes.get(edge.to) || packageNodes.get(edge.importSource);
+    if (toNode) toNode.inbound += 1;
+  });
+
+  const nodes = [
+    ...[...fileNodes.values()].sort((left, right) => Number(Boolean(repositoryReadOrderItem(repositoryMap, left.path))) * -1 - Number(Boolean(repositoryReadOrderItem(repositoryMap, right.path))) * -1 || left.path.localeCompare(right.path)),
+    ...[...packageNodes.values()].sort((left, right) => right.inbound - left.inbound || left.label.localeCompare(right.label)),
+  ];
+  return {
+    model: "declared-structure/v1",
+    generator: "browser",
+    nodes,
+    edges,
+    metrics: {
+      sourceFiles: fileNodes.size,
+      externalBoundaries: packageNodes.size,
+      references: edges.length,
+      internalEdges: edges.filter((edge) => edge.resolution === "tracked-path").length,
+      unresolvedReferences: edges.filter((edge) => edge.resolution === "unresolved").length,
+    },
+    boundary: "Visible imports and asset references only. A path is marked resolved only when exactly one tracked file matches; pulses describe declaration order, not runtime traffic or execution.",
+  };
+}
 function stripMarkdownInline(value) {
   return String(value || "")
     .replace(/<!--[\s\S]*?-->/g, " ")
@@ -2242,6 +2434,9 @@ function resetRepositoryExplorer() {
   state.explorerPath = "";
   state.explorerInvestigation = "";
   state.explorerMobilePane = "preview";
+  state.signalFilter = "all";
+  state.signalSelection = null;
+  state.signalPendingJump = null;
   state.explorerPreview = null;
   state.explorerPreviewState = "idle";
   state.explorerRequestId += 1;
@@ -2582,6 +2777,16 @@ function setRepositoryPreview(data, previewState, preview = null) {
   if (state.data === data) renderRepositoryPreview(data);
 }
 
+function consumeRepositorySignalJump(data, entry) {
+  const jump = state.signalPendingJump?.path === entry.path ? state.signalPendingJump : null;
+  if (!jump) return;
+  state.signalPendingJump = null;
+  window.requestAnimationFrame(() => {
+    if (state.data !== data || state.explorerPath !== entry.path) return;
+    repositoryLineJump(jump.line);
+  });
+}
+
 async function loadRepositoryPreview(data, entry, requestId) {
   const order = repositoryReadOrderItem(data.repositoryMap, entry.path);
   const embedded = entry.preview || order?.preview;
@@ -2592,6 +2797,7 @@ async function loadRepositoryPreview(data, entry, requestId) {
     if (order && guide) order.readingGuide = guide;
     refreshRepositoryInvestigations(data);
     setRepositoryPreview(data, "ready", { text, lines: text.split("\n").length, truncated, embedded: true, guide });
+    consumeRepositorySignalJump(data, entry);
     return;
   }
   const blocked = previewFallbackReason(entry);
@@ -2612,15 +2818,17 @@ async function loadRepositoryPreview(data, entry, requestId) {
     if (order && guide) order.readingGuide = guide;
     refreshRepositoryInvestigations(data);
     setRepositoryPreview(data, "ready", { text: shortened, lines: shortened.split("\n").length, truncated, embedded: false, guide });
+    consumeRepositorySignalJump(data, entry);
   } catch (error) {
     if (error.name === "AbortError" || requestId !== state.explorerRequestId) return;
     setRepositoryPreview(data, "error", { message: `${error.message || "GitHub raw did not respond."} The source link below still points to the tracked path.` });
   }
 }
 
-function selectRepositoryPath(data, path) {
+function selectRepositoryPath(data, path, { preserveSignalJump = false } = {}) {
   const entry = repositoryMapEntry(data.repositoryMap, path);
   if (!entry) return;
+  if (!preserveSignalJump) state.signalPendingJump = null;
   const atlas = el("repo-atlas-disclosure");
   if (atlas) atlas.open = true;
   state.explorerPath = entry.path;
@@ -2662,6 +2870,467 @@ function setRepositoryWorkbenchPane(data, pane, { focus = false } = {}) {
   if (focus && pane === "browser" && window.matchMedia("(max-width: 720px)").matches) {
     window.requestAnimationFrame(() => el("repo-map-search")?.focus({ preventScroll: true }));
   }
+}
+
+const SIGNAL_PACKAGE_LIMIT = 12;
+
+function signalNodeForId(graph, id) {
+  return (graph?.nodes || []).find((node) => node.id === id) || null;
+}
+
+function signalNodeDisplayName(graph, id) {
+  return signalNodeForId(graph, id)?.label || String(id || "").replace(/^(?:file|package):/, "");
+}
+
+function signalEdgeFilterMatches(edge, filter) {
+  if (filter === "internal") return edge.resolution === "tracked-path";
+  if (filter === "boundary") return edge.resolution !== "tracked-path";
+  return true;
+}
+
+function signalGraphPositions(fileNodes, packageNodes) {
+  const positions = new Map();
+  const files = fileNodes.slice(0, 14);
+  const packages = packageNodes.slice(0, SIGNAL_PACKAGE_LIMIT);
+  const fileCount = files.length;
+  files.forEach((node, index) => {
+    if (fileCount === 1) {
+      positions.set(node.id, { x: 500, y: 290 });
+      return;
+    }
+    const angle = -Math.PI / 2 + (index / fileCount) * Math.PI * 2;
+    const radiusX = fileCount <= 4 ? 188 : fileCount <= 8 ? 230 : 250;
+    const radiusY = fileCount <= 4 ? 112 : fileCount <= 8 ? 150 : 174;
+    positions.set(node.id, {
+      x: 500 + Math.cos(angle) * radiusX,
+      y: 280 + Math.sin(angle) * radiusY,
+    });
+  });
+  const packageCount = packages.length;
+  packages.forEach((node, index) => {
+    const angle = -Math.PI / 2 + Math.PI / Math.max(1, packageCount) + (index / Math.max(1, packageCount)) * Math.PI * 2;
+    positions.set(node.id, {
+      x: 500 + Math.cos(angle) * 420,
+      y: 280 + Math.sin(angle) * 228,
+    });
+  });
+  return positions;
+}
+
+function signalCurvePath(from, to, index, resolution) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const direction = index % 2 === 0 ? 1 : -1;
+  const bend = direction * (28 + (index % 5) * 8) * (resolution === "external" ? 1.18 : 1);
+  const midpointX = (from.x + to.x) / 2;
+  const midpointY = (from.y + to.y) / 2;
+  const controlX = midpointX + (-dy / length) * bend;
+  const controlY = midpointY + (dx / length) * bend;
+  return `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} Q ${controlX.toFixed(1)} ${controlY.toFixed(1)} ${to.x.toFixed(1)} ${to.y.toFixed(1)}`;
+}
+
+function signalResolutionLabel(resolution) {
+  if (resolution === "tracked-path") return "Tracked path";
+  if (resolution === "unresolved") return "Unresolved local";
+  return "External boundary";
+}
+
+function signalResolutionCopy(resolution) {
+  if (resolution === "tracked-path") return "Exactly one tracked file matches this local reference.";
+  if (resolution === "unresolved") return "No unique tracked file matches this local reference, so the edge remains explicitly unresolved.";
+  return "This name points outside the indexed tree. It is recorded as a boundary, not a resolved file.";
+}
+
+function signalNodeButton(data, graph, node, position) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `signal-node is-${node.type}${node.unresolved ? " is-unresolved" : ""}`;
+  button.dataset.nodeId = node.id;
+  button.style.left = `${(position.x / 10).toFixed(2)}%`;
+  button.style.top = `${(position.y / 5.6).toFixed(2)}%`;
+  button.setAttribute("aria-pressed", "false");
+  button.title = node.type === "file"
+    ? `${node.path}\n${node.role || "Tracked file"}\n${node.inbound} inbound · ${node.outbound} outbound`
+    : `${node.package}\n${node.inbound} visible reference${node.inbound === 1 ? "" : "s"}`;
+  const glyph = document.createElement("span");
+  glyph.className = "signal-node-glyph";
+  glyph.textContent = node.type === "file" ? "◇" : "◎";
+  const copy = document.createElement("span");
+  copy.className = "signal-node-copy";
+  copy.append(
+    Object.assign(document.createElement("strong"), { textContent: node.label || node.path || node.package }),
+    Object.assign(document.createElement("small"), {
+      textContent: node.type === "file"
+        ? `${node.inbound} in · ${node.outbound} out`
+        : `${node.inbound} ref${node.inbound === 1 ? "" : "s"}${node.unresolved ? " · open" : ""}`,
+    }),
+  );
+  button.append(glyph, copy);
+  const selectNode = ({ open = false } = {}) => {
+    selectRepositorySignal(data, { type: "node", id: node.id });
+    if (open && node.type === "file") openRepositorySignalEvidence(data, node.path, 1);
+  };
+  button.addEventListener("click", () => selectNode({ open: true }));
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    const isSelected = state.signalSelection?.type === "node" && state.signalSelection.id === node.id;
+    selectNode({ open: isSelected });
+  });
+  return button;
+}
+
+function signalSvgElement(name, attributes = {}) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+  Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
+  return element;
+}
+
+function renderRepositorySignalStage(data, graph, fileNodes, packageNodes, edges, positions) {
+  const stage = el("signal-graph-stage");
+  if (!stage) return;
+  const svg = signalSvgElement("svg", { class: "signal-edge-layer", viewBox: "0 0 1000 560", preserveAspectRatio: "none", "aria-hidden": "true" });
+  const defs = signalSvgElement("defs");
+  [["tracked-path", "#78b89f"], ["external", "#e66d57"], ["unresolved", "#e6b94f"]].forEach(([resolution, color]) => {
+    const marker = signalSvgElement("marker", { id: `signal-arrow-${resolution}`, viewBox: "0 0 10 10", refX: "8", refY: "5", markerWidth: "5", markerHeight: "5", orient: "auto-start-reverse" });
+    marker.append(signalSvgElement("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: color }));
+    defs.append(marker);
+  });
+  svg.append(defs);
+
+  edges.forEach((edge, index) => {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) return;
+    const pathData = signalCurvePath(from, to, index, edge.resolution);
+    svg.append(signalSvgElement("path", {
+      class: `signal-edge-path is-${edge.resolution}`,
+      d: pathData,
+      "data-edge-id": edge.id,
+      "marker-end": `url(#signal-arrow-${edge.resolution})`,
+    }));
+    const hit = signalSvgElement("path", {
+      class: "signal-edge-hit",
+      d: pathData,
+      "data-edge-id": edge.id,
+      tabindex: "0",
+      role: "button",
+      "aria-label": `${signalNodeDisplayName(graph, edge.from)} to ${signalNodeDisplayName(graph, edge.to)}, ${signalResolutionLabel(edge.resolution)}, line ${edge.line}. Press Enter to open the source evidence.`,
+    });
+    hit.append(Object.assign(document.createElementNS("http://www.w3.org/2000/svg", "title"), {
+      textContent: `${edge.sourcePath} : ${edge.line} → ${edge.importSource}`,
+    }));
+    const activate = () => {
+      selectRepositorySignal(data, { type: "edge", id: edge.id });
+      openRepositorySignalEvidence(data, edge.sourcePath, edge.line);
+    };
+    hit.addEventListener("click", activate);
+    hit.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activate();
+        return;
+      }
+      if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const hits = [...document.querySelectorAll(".signal-edge-hit")];
+      const offset = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+      hits[(Math.max(0, hits.indexOf(hit)) + offset + hits.length) % hits.length]?.focus({ preventScroll: true });
+    });
+    svg.append(hit);
+  });
+
+  const center = document.createElement("div");
+  center.className = "signal-graph-core";
+  center.append(
+    Object.assign(document.createElement("span"), { textContent: "DECLARED STRUCTURE" }),
+    Object.assign(document.createElement("strong"), { textContent: String(graph.metrics?.references || edges.length).padStart(2, "0") }),
+    Object.assign(document.createElement("small"), { textContent: `${fileNodes.length} files · ${packageNodes.length} boundaries` }),
+  );
+
+  const nodeLayer = document.createElement("div");
+  nodeLayer.className = "signal-graph-nodes";
+  [...fileNodes, ...packageNodes].forEach((node) => {
+    const position = positions.get(node.id);
+    if (position) nodeLayer.append(signalNodeButton(data, graph, node, position));
+  });
+  stage.replaceChildren(svg, center, nodeLayer);
+}
+
+function signalEdgeList(data, graph, edges, emptyCopy) {
+  const list = document.createElement("div");
+  list.className = "signal-evidence-list";
+  if (!edges.length) {
+    list.append(Object.assign(document.createElement("p"), { className: "signal-inspector-empty", textContent: emptyCopy }));
+    return list;
+  }
+  edges.slice(0, 8).forEach((edge) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `signal-evidence-link is-${edge.resolution}`;
+    const line = document.createElement("span");
+    line.className = "signal-evidence-line";
+    line.textContent = `L${edge.line}`;
+    const copy = document.createElement("span");
+    copy.append(
+      Object.assign(document.createElement("strong"), { textContent: edge.importSource }),
+      Object.assign(document.createElement("small"), { textContent: `${edge.sourcePath} → ${signalNodeDisplayName(graph, edge.to)}` }),
+    );
+    button.append(line, copy);
+    button.addEventListener("click", () => {
+      selectRepositorySignal(data, { type: "edge", id: edge.id });
+      openRepositorySignalEvidence(data, edge.sourcePath, edge.line);
+    });
+    list.append(button);
+  });
+  if (edges.length > 8) list.append(Object.assign(document.createElement("p"), { className: "signal-inspector-more", textContent: `${edges.length - 8} more references stay available in the tracked source scan.` }));
+  return list;
+}
+
+function renderRepositorySignalInspector(data, graph) {
+  const inspector = el("signal-inspector");
+  if (!inspector) return;
+  const selection = state.signalSelection;
+  const node = selection?.type === "node" ? signalNodeForId(graph, selection.id) : null;
+  const edge = selection?.type === "edge" ? (graph.edges || []).find((item) => item.id === selection.id) : null;
+  const shell = document.createElement("div");
+  shell.className = "signal-inspector-shell";
+
+  if (!node && !edge) {
+    shell.append(
+      Object.assign(document.createElement("p"), { className: "signal-inspector-kicker", textContent: "SIGNAL LAB / READY" }),
+      Object.assign(document.createElement("h6"), { textContent: "Select a file, boundary, or declared edge." }),
+      Object.assign(document.createElement("p"), { className: "signal-inspector-copy", textContent: "The inspector will name the exact tracked path and line behind the selected signal." }),
+    );
+    inspector.replaceChildren(shell);
+    return;
+  }
+
+  if (edge) {
+    const resolution = document.createElement("span");
+    resolution.className = `signal-resolution-badge is-${edge.resolution}`;
+    resolution.textContent = signalResolutionLabel(edge.resolution);
+    shell.append(
+      Object.assign(document.createElement("p"), { className: "signal-inspector-kicker", textContent: "DECLARED EDGE / SOURCE EVIDENCE" }),
+      Object.assign(document.createElement("h6"), { textContent: edge.importSource }),
+      Object.assign(document.createElement("p"), { className: "signal-inspector-path", textContent: `${signalNodeDisplayName(graph, edge.from)} → ${signalNodeDisplayName(graph, edge.to)}` }),
+      Object.assign(document.createElement("p"), { className: "signal-inspector-copy", textContent: signalResolutionCopy(edge.resolution) }),
+    );
+    const facts = document.createElement("div");
+    facts.className = "signal-inspector-facts";
+    facts.append(
+      Object.assign(document.createElement("span"), { textContent: `line ${edge.line}` }),
+      Object.assign(document.createElement("span"), { textContent: edge.names?.length ? edge.names.join(", ") : "reference" }),
+      resolution,
+    );
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "signal-open-button";
+    open.textContent = `Open ${pathBasename(edge.sourcePath)} at L${edge.line} →`;
+    open.addEventListener("click", () => openRepositorySignalEvidence(data, edge.sourcePath, edge.line));
+    shell.append(facts, open, Object.assign(document.createElement("p"), { className: "signal-boundary-note", textContent: "The line proves a declaration in the visible scan. It does not prove that this branch runs or that the target package is used." }));
+    inspector.replaceChildren(shell);
+    return;
+  }
+
+  if (node.type === "file") {
+    const outgoing = (graph.edges || []).filter((item) => item.from === node.id);
+    const incoming = (graph.edges || []).filter((item) => item.to === node.id);
+    shell.append(
+      Object.assign(document.createElement("p"), { className: "signal-inspector-kicker", textContent: "TRACKED FILE / SIGNAL NODE" }),
+      Object.assign(document.createElement("h6"), { textContent: node.label || node.path }),
+      Object.assign(document.createElement("p"), { className: "signal-inspector-path", textContent: node.path }),
+      Object.assign(document.createElement("p"), { className: "signal-inspector-copy", textContent: node.role || "A tracked file with visible declarations or references." }),
+    );
+    const facts = document.createElement("div");
+    facts.className = "signal-inspector-facts";
+    facts.append(
+      Object.assign(document.createElement("span"), { textContent: `${node.declarations || 0} declarations` }),
+      Object.assign(document.createElement("span"), { textContent: `${node.inbound || 0} inbound` }),
+      Object.assign(document.createElement("span"), { textContent: `${node.outbound || 0} outbound` }),
+    );
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "signal-open-button";
+    open.textContent = "Open in the reading desk →";
+    open.addEventListener("click", () => openRepositorySignalEvidence(data, node.path, 1));
+    const outgoingLabel = Object.assign(document.createElement("p"), { className: "signal-inspector-label", textContent: "References declared here" });
+    const incomingLabel = Object.assign(document.createElement("p"), { className: "signal-inspector-label", textContent: "Tracked files or boundaries pointing here" });
+    shell.append(facts, open, outgoingLabel, signalEdgeList(data, graph, outgoing, "No visible import or asset reference was extracted from this file."), incomingLabel, signalEdgeList(data, graph, incoming, "No visible tracked file references this file."));
+    inspector.replaceChildren(shell);
+    return;
+  }
+
+  const inbound = (graph.edges || []).filter((item) => item.to === node.id);
+  const badge = document.createElement("span");
+  badge.className = `signal-resolution-badge ${node.unresolved ? "is-unresolved" : "is-external"}`;
+  badge.textContent = node.unresolved ? "Unresolved local" : "External boundary";
+  shell.append(
+    Object.assign(document.createElement("p"), { className: "signal-inspector-kicker", textContent: "BOUNDARY NODE / DECLARED IMPORT" }),
+    Object.assign(document.createElement("h6"), { textContent: node.label || node.package }),
+    Object.assign(document.createElement("p"), { className: "signal-inspector-copy", textContent: signalResolutionCopy(node.unresolved ? "unresolved" : "external") }),
+  );
+  const facts = document.createElement("div");
+  facts.className = "signal-inspector-facts";
+  facts.append(Object.assign(document.createElement("span"), { textContent: `${inbound.length} exact reference${inbound.length === 1 ? "" : "s"}` }), badge);
+  shell.append(facts, Object.assign(document.createElement("p"), { className: "signal-inspector-label", textContent: "Where the boundary is declared" }), signalEdgeList(data, graph, inbound, "No exact line reference is available for this boundary."));
+  inspector.replaceChildren(shell);
+}
+
+function paintRepositorySignalSelection(graph) {
+  const selection = state.signalSelection;
+  const connectedEdges = new Set();
+  const connectedNodes = new Set();
+  if (selection?.type === "node") {
+    connectedNodes.add(selection.id);
+    (graph.edges || []).forEach((edge) => {
+      if (edge.from !== selection.id && edge.to !== selection.id) return;
+      connectedEdges.add(edge.id);
+      connectedNodes.add(edge.from);
+      connectedNodes.add(edge.to);
+    });
+  }
+  if (selection?.type === "edge") {
+    const edge = (graph.edges || []).find((item) => item.id === selection.id);
+    if (edge) {
+      connectedEdges.add(edge.id);
+      connectedNodes.add(edge.from);
+      connectedNodes.add(edge.to);
+    }
+  }
+  document.querySelectorAll(".signal-node").forEach((node) => {
+    const selected = selection?.type === "node" && node.dataset.nodeId === selection.id;
+    const connected = connectedNodes.has(node.dataset.nodeId);
+    node.classList.toggle("is-selected", selected);
+    node.classList.toggle("is-neighbor", connected && !selected);
+    node.classList.toggle("is-dimmed", Boolean(selection) && !connected);
+    node.setAttribute("aria-pressed", String(selected));
+  });
+  document.querySelectorAll(".signal-edge-path, .signal-edge-hit").forEach((path) => {
+    const active = connectedEdges.has(path.dataset.edgeId);
+    path.classList.toggle("is-active", active);
+    path.classList.toggle("is-dimmed", Boolean(selection) && !active);
+  });
+}
+
+function focusRepositorySignalNode(nodeId) {
+  const button = [...document.querySelectorAll(".signal-node")].find((item) => item.dataset.nodeId === nodeId);
+  if (button) button.focus({ preventScroll: true });
+  return button || null;
+}
+
+function moveRepositorySignalFocus(current, direction) {
+  const nodes = [...document.querySelectorAll(".signal-node")];
+  if (!nodes.length) return;
+  const index = Math.max(0, nodes.indexOf(current));
+  const next = nodes[(index + direction + nodes.length) % nodes.length];
+  next.focus({ preventScroll: true });
+  selectRepositorySignal(state.data, { type: "node", id: next.dataset.nodeId });
+}
+
+function selectRepositorySignal(data, selection) {
+  state.signalSelection = selection;
+  const graph = data?.repositoryMap?.signalGraph || buildRepositorySignalGraph(data?.repositoryMap || {});
+  paintRepositorySignalSelection(graph);
+  renderRepositorySignalInspector(data, graph);
+  if (selection?.type === "node") focusRepositorySignalNode(selection.id);
+}
+
+function openRepositorySignalEvidence(data, path, line = 1) {
+  if (!repositoryMapEntry(data?.repositoryMap, path)) return;
+  state.signalPendingJump = { path, line: Math.max(1, Number(line) || 1) };
+  selectRepositoryPath(data, path, { preserveSignalJump: true });
+}
+
+function renderRepositorySignalLab(data) {
+  const lab = el("signal-lab");
+  const map = data?.repositoryMap;
+  if (!lab) return;
+  if (!map?.entries?.length) { lab.hidden = true; return; }
+  lab.hidden = false;
+  let graph = map.signalGraph;
+  if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+    graph = buildRepositorySignalGraph(map);
+    map.signalGraph = graph;
+  }
+  const metrics = graph.metrics || {};
+  const metricItems = [
+    ["Tracked links", metrics.internalEdges || 0, "unique local paths"],
+    ["External boundaries", metrics.externalBoundaries || 0, "outside the tree"],
+    ["Unresolved local", metrics.unresolvedReferences || 0, "ambiguous or missing"],
+  ];
+  el("signal-lab-metrics").replaceChildren(...metricItems.map(([label, value, detail]) => {
+    const item = document.createElement("div");
+    item.className = "signal-metric";
+    item.append(
+      Object.assign(document.createElement("strong"), { textContent: formatNumber(value) }),
+      Object.assign(document.createElement("span"), { textContent: label }),
+      Object.assign(document.createElement("small"), { textContent: detail }),
+    );
+    return item;
+  }));
+  document.querySelectorAll("[data-signal-filter]").forEach((button) => {
+    const active = button.dataset.signalFilter === state.signalFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+
+  const layout = el("signal-lab-layout");
+  const toolbar = el("signal-lab-toolbar");
+  const empty = el("signal-lab-empty");
+  const boundary = el("signal-lab-boundary");
+  const usefulEdges = graph.edges || [];
+  const totalPackages = (graph.nodes || []).filter((node) => node.type === "package").length;
+  const hiddenPackageCount = Math.max(0, totalPackages - SIGNAL_PACKAGE_LIMIT);
+  boundary.textContent = `${graph.boundary || "Visible declarations only."}${hiddenPackageCount ? ` The graph plots the ${SIGNAL_PACKAGE_LIMIT} highest-connectivity boundaries; ${hiddenPackageCount} more remain in the exact reference inspector.` : ""}`;
+
+  if (usefulEdges.length < 2) {
+    layout.hidden = true;
+    toolbar.hidden = true;
+    empty.hidden = false;
+    empty.replaceChildren(
+      Object.assign(document.createElement("span"), { textContent: "INSUFFICIENT SIGNAL" }),
+      Object.assign(document.createElement("strong"), { textContent: "This tree does not expose enough declared cross-file references to draw an honest graph." }),
+      Object.assign(document.createElement("p"), { textContent: "The museum leaves the graph empty instead of turning declarations, guesses, or runtime assumptions into decorative edges." }),
+    );
+    return;
+  }
+  layout.hidden = false;
+  toolbar.hidden = false;
+  empty.hidden = true;
+
+  const fileNodes = (graph.nodes || []).filter((node) => node.type === "file");
+  const packageNodes = (graph.nodes || []).filter((node) => node.type === "package").sort((left, right) => right.inbound - left.inbound || left.label.localeCompare(right.label)).slice(0, SIGNAL_PACKAGE_LIMIT);
+  const visibleNodeIds = new Set([...fileNodes, ...packageNodes].map((node) => node.id));
+  const visibleEdges = usefulEdges.filter((edge) => visibleNodeIds.has(edge.from) && visibleNodeIds.has(edge.to) && signalEdgeFilterMatches(edge, state.signalFilter));
+  const positions = signalGraphPositions(fileNodes, packageNodes);
+
+  const validSelection = state.signalSelection?.type === "edge"
+    ? visibleEdges.some((edge) => edge.id === state.signalSelection.id)
+    : state.signalSelection?.type === "node" && visibleNodeIds.has(state.signalSelection.id);
+  if (!validSelection) {
+    const preferred = fileNodes.find((node) => visibleEdges.some((edge) => edge.resolution === "tracked-path" && (edge.from === node.id || edge.to === node.id))) || fileNodes[0] || packageNodes[0];
+    state.signalSelection = preferred ? { type: "node", id: preferred.id } : null;
+  }
+
+  if (!visibleEdges.length) {
+    el("signal-graph-stage").replaceChildren(Object.assign(document.createElement("div"), { className: "signal-stage-empty", textContent: "No visible references match this filter. Switch to All signals to restore the declared graph." }));
+    el("signal-inspector").replaceChildren(Object.assign(document.createElement("div"), { className: "signal-inspector-shell" }, Object.assign(document.createElement("strong"), { textContent: "No matching evidence in this view." }), Object.assign(document.createElement("p"), { className: "signal-inspector-copy", textContent: "Filtering never changes the underlying evidence; it only hides edges from the graph." })));
+    return;
+  }
+  renderRepositorySignalStage(data, graph, fileNodes, packageNodes, visibleEdges, positions);
+  const stage = el("signal-graph-stage");
+  if (stage) stage.onkeydown = (event) => {
+    if (!event.target.closest?.(".signal-node")) return;
+    if (event.key === "Enter" || event.key === " ") return;
+    if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+    moveRepositorySignalFocus(event.target, direction);
+  };
+  paintRepositorySignalSelection(graph);
+  renderRepositorySignalInspector(data, graph);
 }
 
 function renderRepositoryExplorer(data) {
@@ -3280,7 +3949,7 @@ function render(data) {
   el("fact-pushed").textContent = relativeDate(data.pushedAt);
   el("fact-language").textContent = data.language || "Mixed stack";
   el("fact-license").textContent = data.license || "Unspecified";
-  renderStats(data); renderFieldDiscovery(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderRepositoryExplorer(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
+  renderStats(data); renderFieldDiscovery(data); renderAvatars(data); renderTimeline(data); renderAquarium(data); renderScore(data); renderAnalysis(data); renderOrientation(data); renderJourney(data); renderArchitecture(data); renderMachineMap(data); renderRepositorySignalLab(data); renderRepositoryExplorer(data); renderHistoryTeaching(data); renderLearning(data); renderExit(data); renderVisitMap(data);
   el("score-caption").textContent = `Commit pulse / ${data.commits?.length || 0} markers`;
 }
 
@@ -3447,6 +4116,14 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll("[data-repo-pane]").forEach((button) => {
     button.addEventListener("click", () => setRepositoryWorkbenchPane(state.data, button.dataset.repoPane, { focus: true }));
+  });
+  document.querySelectorAll("[data-signal-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const filter = button.dataset.signalFilter;
+      if (!["all", "internal", "boundary"].includes(filter)) return;
+      state.signalFilter = filter;
+      renderRepositorySignalLab(state.data);
+    });
   });
   const atlasDisclosure = el("repo-atlas-disclosure");
   const mobileAtlasQuery = window.matchMedia("(max-width: 720px)");

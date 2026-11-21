@@ -295,6 +295,37 @@
                         <p class="repo-investigation-boundary" id="repo-investigation-boundary">Structural evidence only.</p>
                       </div>
                     </div>
+                    <section class="signal-lab" id="signal-lab" aria-labelledby="signal-lab-title" hidden>
+                      <div class="signal-lab-heading">
+                        <div>
+                          <p class="signal-lab-kicker">Declared signal graph · browser + Agent</p>
+                          <h5 id="signal-lab-title">Follow the wiring the repository declares.</h5>
+                          <p class="signal-lab-lede">Trace visible imports and asset references from one tracked file to another. The graph resolves a local path only when exactly one tracked file matches it.</p>
+                        </div>
+                        <div class="signal-lab-metrics" id="signal-lab-metrics" aria-live="polite"></div>
+                      </div>
+                      <div class="signal-lab-toolbar" id="signal-lab-toolbar">
+                        <div class="signal-filters" id="signal-filters" role="group" aria-label="Filter declared signals">
+                          <button type="button" data-signal-filter="all" aria-pressed="true">All signals</button>
+                          <button type="button" data-signal-filter="internal" aria-pressed="false">Tracked links</button>
+                          <button type="button" data-signal-filter="boundary" aria-pressed="false">Boundaries</button>
+                        </div>
+                        <span class="signal-caution"><i aria-hidden="true"></i> Declared structure · not runtime traffic</span>
+                      </div>
+                      <div class="signal-lab-layout" id="signal-lab-layout">
+                        <div class="signal-graph-shell">
+                          <div class="signal-graph-stage" id="signal-graph-stage" role="group" aria-label="Declared repository signal graph. Use Tab or arrow keys to move between nodes; Enter selects, and Enter again on a file opens its evidence."></div>
+                          <div class="signal-graph-key" aria-hidden="true">
+                            <span><i class="is-local"></i> tracked path</span>
+                            <span><i class="is-external"></i> external boundary</span>
+                            <span><i class="is-unresolved"></i> unresolved local</span>
+                          </div>
+                        </div>
+                        <aside class="signal-inspector" id="signal-inspector" aria-live="polite" aria-label="Selected signal evidence"></aside>
+                      </div>
+                      <div class="signal-lab-empty" id="signal-lab-empty" hidden></div>
+                      <p class="signal-lab-boundary" id="signal-lab-boundary"></p>
+                    </section>
                     <div class="repo-workbench-switch" role="group" aria-label="Repository atlas view">
                       <button class="repo-workbench-tab is-active" type="button" data-repo-pane="preview" aria-pressed="true">
                         <span>Reading desk</span>

@@ -259,7 +259,7 @@ CODE_EXTENSIONS = {
     ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".rs",
     ".go", ".rb", ".java", ".kt", ".kts", ".swift", ".c", ".h", ".cc", ".cpp",
     ".hpp", ".cs", ".php", ".scala", ".ex", ".exs", ".erl", ".hs", ".lua", ".r",
-    ".jl", ".sh", ".bash", ".zsh", ".ps1", ".sql",
+    ".jl", ".sh", ".bash", ".zsh", ".ps1", ".sql", ".html", ".htm",
 }
 STYLE_EXTENSIONS = {".css", ".scss", ".sass", ".less", ".styl"}
 DOCUMENT_EXTENSIONS = {".md", ".mdx", ".rst", ".adoc", ".txt"}
@@ -284,7 +284,7 @@ SOURCE_LANGUAGES = {
     ".scala": "Scala", ".ex": "Elixir", ".exs": "Elixir", ".erl": "Erlang",
     ".hs": "Haskell", ".lua": "Lua", ".r": "R", ".jl": "Julia", ".sh": "Shell",
     ".bash": "Shell", ".zsh": "Shell", ".ps1": "PowerShell", ".sql": "SQL",
-    ".css": "CSS", ".scss": "Sass", ".sass": "Sass", ".less": "Less",
+    ".html": "HTML", ".htm": "HTML", ".css": "CSS", ".scss": "Sass", ".sass": "Sass", ".less": "Less",
     ".md": "Markdown", ".mdx": "Markdown", ".rst": "reStructuredText", ".adoc": "AsciiDoc",
     ".json": "JSON", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
 }
@@ -787,6 +787,29 @@ def build_reading_guide(path: str, text: str, truncated: bool = False) -> dict[s
                     add_symbol(arrow.group(1), "component" if arrow.group(1)[:1].isupper() else "function", line_number, line)
                 if plain_fn:
                     add_symbol(plain_fn.group(1), "function", line_number, line)
+        elif extension in {".html", ".htm"}:
+            for pattern in (
+                r"""<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""",
+                r"""<link\b[^>]*\bhref\s*=\s*["']([^"']+)["']""",
+                r"""<(?:img|source|video|audio)\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""",
+            ):
+                reference = re.search(pattern, line, re.I)
+                if reference and not re.match(r"^(?:[a-z]+:|#|//)", reference.group(1), re.I):
+                    add_import(reference.group(1), line_number)
+            title = re.search(r"<title[^>]*>([^<]+)</title>", line, re.I)
+            if title:
+                add_symbol(title.group(1).strip(), "document title", line_number, line)
+            landmark = re.search(r"""<(main|nav|header|footer|aside|section)\b[^>]*\bid\s*=\s*["']([^"']+)["']""", line, re.I)
+            if landmark:
+                add_symbol(landmark.group(2), f"{landmark.group(1).lower()} landmark", line_number, line)
+        elif extension in {".css", ".scss", ".sass", ".less"}:
+            css_import = re.search(r"""@import\s+(?:url\(\s*)?["']([^"')]+)["']""", line)
+            if css_import and not re.match(r"^(?:[a-z]+:|//)", css_import.group(1), re.I):
+                add_import(css_import.group(1), line_number)
+            if top_level:
+                rule = re.match(r"^([^@\s][^{]+)\{", raw)
+                if rule:
+                    add_symbol(rule.group(1).strip()[:90], "style rule", line_number, line)
         elif extension == ".go":
             if re.match(r"^import\s*\(", line):
                 in_go_import_block = True
@@ -1190,6 +1213,191 @@ def build_reading_investigations(read_order: list[dict[str, Any]]) -> list[dict[
     ]
 
 
+def normalize_repository_signal_path(path: str) -> str:
+    parts: list[str] = []
+    for part in re.split(r"[/\\]", str(path or "")):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def signal_import_clean_source(source: str) -> str:
+    return re.split(r"[?#]", str(source or "").strip(), maxsplit=1)[0]
+
+
+def signal_candidate_paths(base_path: str, file_paths: set[str]) -> list[str]:
+    base = normalize_repository_signal_path(base_path)
+    if not base:
+        return []
+    candidates = [base]
+    if not path_extension(base):
+        for extension in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".py", ".rs", ".go", ".html", ".css", ".scss"):
+            candidates.append(f"{base}{extension}")
+        for name in ("index", "__init__"):
+            for extension in (".js", ".ts", ".tsx", ".jsx", ".py", ".html"):
+                candidates.append(f"{base}/{name}{extension}")
+    return [candidate for candidate in candidates if candidate in file_paths]
+
+
+def resolve_repository_signal_import(source_path: str, import_source: str, guide_mode: str, file_paths: set[str]) -> str:
+    raw = signal_import_clean_source(import_source)
+    if not raw or guide_mode == "manifest":
+        return ""
+    extension = path_extension(source_path)
+    source_directory = source_path.rsplit("/", 1)[0] if "/" in source_path else ""
+
+    if extension == ".py" and re.match(r"^\.+[A-Za-z_]", raw):
+        dot_count = len(re.match(r"^\.+", raw).group(0))  # type: ignore[union-attr]
+        tail = raw[dot_count:].replace(".", "/")
+        directory_parts = source_directory.split("/") if source_directory else []
+        parent_directory = "/".join(directory_parts[: max(0, len(directory_parts) - max(0, dot_count - 1))])
+        matches = signal_candidate_paths("/".join(part for part in (parent_directory, tail) if part), file_paths)
+        return matches[0] if len(matches) == 1 else ""
+
+    if re.match(r"^\.{1,2}(?:/|$)", raw) or raw.startswith("/"):
+        relative = raw[1:] if raw.startswith("/") else "/".join(part for part in (source_directory, raw) if part)
+        matches = signal_candidate_paths(relative, file_paths)
+        return matches[0] if len(matches) == 1 else ""
+
+    direct_candidates: list[str] = []
+    if raw.startswith("@/"):
+        direct_candidates.append(raw[2:])
+    direct_candidates.append(raw)
+    if extension == ".py" and "." in raw:
+        dotted = raw.replace(".", "/")
+        direct_candidates.extend((dotted, f"src/{dotted}", f"python/{dotted}"))
+    matches = list(dict.fromkeys(candidate for direct in direct_candidates for candidate in signal_candidate_paths(direct, file_paths)))
+    return matches[0] if len(matches) == 1 else ""
+
+
+def build_repository_signal_graph(repository_map: dict[str, Any]) -> dict[str, Any]:
+    """Describe only declarations visible in the tracked reading samples."""
+    entries = repository_map.get("entries") or []
+    file_paths = {str(entry.get("path")) for entry in entries if entry.get("type") == "file" and entry.get("path")}
+    source_items = [
+        item
+        for item in (repository_map.get("readOrder") or [])
+        if item.get("path") in file_paths and isinstance(item.get("readingGuide"), dict)
+    ]
+    entry_by_path = {str(entry.get("path")): entry for entry in entries if entry.get("path")}
+    file_nodes: dict[str, dict[str, Any]] = {}
+    package_nodes: dict[str, dict[str, Any]] = {}
+    edges: list[dict[str, Any]] = []
+    seen_edges: set[str] = set()
+
+    def ensure_file_node(path: str, item: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        node_id = f"file:{path}"
+        if not path or path not in file_paths:
+            return None
+        if node_id in file_nodes:
+            return file_nodes[node_id]
+        guide = (item or {}).get("readingGuide") or {}
+        entry = entry_by_path.get(path) or {}
+        node = {
+            "id": node_id,
+            "type": "file",
+            "label": path_basename(path),
+            "path": path,
+            "role": (item or {}).get("role") or entry.get("role") or "Tracked repository file",
+            "kind": (item or {}).get("kind") or "source",
+            "category": entry.get("category") or "code",
+            "extension": path_extension(path) or "(none)",
+            "declarations": len(guide.get("symbols") or []),
+            "imports": len(guide.get("imports") or []),
+            "inbound": 0,
+            "outbound": 0,
+            "unresolved": False,
+        }
+        file_nodes[node_id] = node
+        return node
+
+    for source_item in source_items:
+        ensure_file_node(str(source_item.get("path")), source_item)
+
+    for source_item in source_items:
+        source_path = str(source_item.get("path"))
+        guide = source_item.get("readingGuide") or {}
+        for reference in guide.get("imports") or []:
+            import_source = signal_import_clean_source(str(reference.get("source") or ""))
+            if not import_source:
+                continue
+            resolved_path = resolve_repository_signal_import(source_path, import_source, str(guide.get("mode") or ""), file_paths)
+            unresolved_boundary = bool(re.match(r"^\.{1,2}(?:/|[A-Za-z_])", import_source) or import_source.startswith("/"))
+            target_id = f"file:{resolved_path}" if resolved_path else f"package:{import_source}"
+            resolution = "tracked-path" if resolved_path else "unresolved" if unresolved_boundary else "external"
+            line = max(1, int(reference.get("line") or 1))
+            edge_key = "\0".join((source_path, str(line), import_source))
+            if edge_key in seen_edges or resolved_path == source_path:
+                continue
+            seen_edges.add(edge_key)
+            edges.append(
+                {
+                    "id": "",
+                    "from": f"file:{source_path}",
+                    "to": target_id,
+                    "sourcePath": source_path,
+                    "targetPath": resolved_path or "",
+                    "importSource": import_source,
+                    "names": list(reference.get("names") or []),
+                    "line": line,
+                    "resolution": resolution,
+                }
+            )
+            if resolved_path:
+                ensure_file_node(resolved_path)
+            else:
+                package = package_nodes.get(import_source)
+                if package is None:
+                    package = {
+                        "id": target_id,
+                        "type": "package",
+                        "label": import_source,
+                        "package": import_source,
+                        "role": "Declared dependency boundary" if guide.get("mode") == "manifest" else "External package boundary",
+                        "declarations": 0,
+                        "imports": 0,
+                        "inbound": 0,
+                        "outbound": 0,
+                        "unresolved": False,
+                    }
+                    package_nodes[import_source] = package
+                package["inbound"] += 1
+                package["unresolved"] = bool(package["unresolved"] or resolution == "unresolved")
+
+    edges.sort(key=lambda edge: (edge["sourcePath"], edge["line"], edge["importSource"]))
+    for index, edge in enumerate(edges):
+        edge["id"] = f"edge:{index}"
+    for edge in edges:
+        source_node = file_nodes.get(edge["from"])
+        if source_node:
+            source_node["outbound"] += 1
+            source_node["unresolved"] = bool(source_node["unresolved"] or edge["resolution"] == "unresolved")
+        target_node = file_nodes.get(edge["to"]) or package_nodes.get(edge["importSource"])
+        if target_node:
+            target_node["inbound"] += 1
+
+    packages = sorted(package_nodes.values(), key=lambda node: (-int(node.get("inbound") or 0), str(node.get("label") or "").lower()))
+    return {
+        "model": "declared-structure/v1",
+        "generator": "agent",
+        "nodes": [*file_nodes.values(), *packages],
+        "edges": edges,
+        "metrics": {
+            "sourceFiles": len(file_nodes),
+            "externalBoundaries": len(package_nodes),
+            "references": len(edges),
+            "internalEdges": sum(1 for edge in edges if edge["resolution"] == "tracked-path"),
+            "unresolvedReferences": sum(1 for edge in edges if edge["resolution"] == "unresolved"),
+        },
+        "boundary": "Visible imports and asset references only. A path is marked resolved only when exactly one tracked file matches; pulses describe declaration order, not runtime traffic or execution.",
+    }
+
+
 def build_repository_map(files: list[str], branch: str = "main", project_name: str = "") -> dict[str, Any]:
     """Build the same full-tree reading contract used by the browser collector."""
     unique_files = sorted({path.strip("/") for path in files if path and path.strip("/")})
@@ -1237,7 +1445,7 @@ def build_repository_map(files: list[str], branch: str = "main", project_name: s
         if item["path"] in previews:
             item["preview"] = previews[item["path"]]
 
-    return {
+    repository_map = {
         "root": "",
         "branch": branch,
         "truncated": False,
@@ -1257,6 +1465,8 @@ def build_repository_map(files: list[str], branch: str = "main", project_name: s
         "entries": entries,
         "coverageNote": "Every path in the tracked HEAD tree is indexed; reading roles are inferred from names and paths.",
     }
+    repository_map["signalGraph"] = build_repository_signal_graph(repository_map)
+    return repository_map
 
 
 def build_orientation(description: str, readme: str, language: str) -> dict[str, str]:
