@@ -32,6 +32,23 @@ jobs:
       - name: Curate the built-in Agent collection
         run: python3 skills/repo-museum/scripts/build_museum.py
 
+      - name: Verify checked-in Agent collection
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          fresh = json.loads(Path('.repo-museum/museum.json').read_text())
+          checked_in = json.loads(Path('collections/repo-museum.json').read_text())
+          fresh_graph = fresh.get('repositoryMap', {}).get('signalGraph')
+          checked_in_graph = checked_in.get('repositoryMap', {}).get('signalGraph')
+          if fresh_graph != checked_in_graph:
+              raise SystemExit(
+                  'collections/repo-museum.json has a stale signal graph; '
+                  'run build_museum.py and copy .repo-museum/museum.json.'
+              )
+          PY
+
       - name: Stage the static site
         run: |
           mkdir -p _site/collections
